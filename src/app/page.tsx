@@ -2,101 +2,76 @@
 
 import { useState } from "react";
 import {
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  FileCheck2,
-  FileText,
-  Landmark,
-  Menu,
-  Plus,
-  Search,
-  Settings2,
-  Users,
-  X,
+  ArrowLeft, ArrowUpRight, BarChart3, Bell, Check, ChevronDown, CircleHelp,
+  FileCheck2, FileText, Landmark, Menu, Plus, Search, Settings2, SlidersHorizontal,
+  UploadCloud, Users, WalletCards, X, Zap,
 } from "lucide-react";
 
+type Screen = "control" | "results" | "workers" | "settings";
+type Modal = "receipt" | "transfer" | null;
+
 const navItems = [
-  { label: "Controles", icon: FileCheck2, active: true },
-  { label: "Trabajadores", icon: Users },
-  { label: "Configuración", icon: Settings2 },
+  { label: "Controles", icon: FileCheck2, screen: "control" as Screen },
+  { label: "Trabajadores", icon: Users, screen: "workers" as Screen },
+  { label: "Configuración", icon: Settings2, screen: "settings" as Screen },
+];
+
+const workers = [
+  { name: "Ana Rodríguez", id: "4.567.890-1", role: "Diseñadora", salary: "$ 78.500", status: "Al día" },
+  { name: "Bruno Silva", id: "3.992.104-8", role: "Desarrollador", salary: "$ 112.000", status: "Al día" },
+  { name: "Carla Méndez", id: "4.821.336-7", role: "Administradora", salary: "$ 96.200", status: "Revisar" },
+  { name: "Diego Pereira", id: "3.445.219-2", role: "Soporte", salary: "$ 64.800", status: "Al día" },
 ];
 
 export default function Home() {
+  const [screen, setScreen] = useState<Screen>("control");
+  const [modal, setModal] = useState<Modal>(null);
   const [receipts, setReceipts] = useState(0);
   const [transfers, setTransfers] = useState(0);
-  const [manualType, setManualType] = useState<"receipt" | "transfer" | null>(null);
   const [analyzed, setAnalyzed] = useState(false);
+  const [showMobileNav, setShowMobileNav] = useState(false);
 
-  const addFiles = (type: "receipt" | "transfer") => {
-    if (type === "receipt") setReceipts((count) => count + 1);
-    else setTransfers((count) => count + 1);
+  const addFile = (type: "receipt" | "transfer") => {
+    type === "receipt" ? setReceipts((value) => value + 1) : setTransfers((value) => value + 1);
     setAnalyzed(false);
   };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex min-h-screen max-w-[1440px]">
-        <aside className="hidden w-64 shrink-0 border-r border-border bg-card px-5 py-7 lg:flex lg:flex-col">
-          <div className="flex items-center gap-3 px-2">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold">S</div>
-            <div>
-              <p className="font-semibold tracking-tight">Saldo claro</p>
-              <p className="text-xs text-muted-foreground">Espacio de trabajo</p>
-            </div>
-          </div>
-          <nav aria-label="Navegación principal" className="mt-12 flex flex-col gap-2">
-            <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Espacio de trabajo</p>
-            {navItems.map(({ label, icon: Icon, active }) => (
-              <button key={label} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${active ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
-                <Icon className="size-4" aria-hidden />
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="mt-auto border-t border-border pt-5">
-            <div className="flex items-center gap-3 px-2">
-              <div className="flex size-9 items-center justify-center rounded-full bg-muted text-xs font-semibold">MG</div>
-              <div className="min-w-0"><p className="truncate text-sm font-medium">María González</p><p className="truncate text-xs text-muted-foreground">Administradora</p></div>
-              <ChevronDown className="ml-auto size-4 text-muted-foreground" aria-hidden />
-            </div>
-          </div>
+        <aside className={`${showMobileNav ? "flex" : "hidden"} fixed inset-y-0 left-0 z-20 w-72 flex-col border-r border-border bg-card px-5 py-7 lg:static lg:flex`}>
+          <div className="flex items-center gap-3 px-2"><div className="flex size-9 items-center justify-center rounded-xl bg-primary font-semibold text-primary-foreground">S</div><div><p className="font-semibold tracking-tight">Saldo claro</p><p className="text-xs text-muted-foreground">Espacio de trabajo</p></div></div>
+          <nav aria-label="Navegación principal" className="mt-12 flex flex-col gap-2"><p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Espacio de trabajo</p>{navItems.map(({ label, icon: Icon, screen: target }) => <button key={label} onClick={() => { setScreen(target); setShowMobileNav(false); }} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${screen === target ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}><Icon className="size-4" aria-hidden />{label}</button>)}</nav>
+          <div className="mt-auto border-t border-border pt-5"><div className="flex items-center gap-3 px-2"><div className="flex size-9 items-center justify-center rounded-full bg-muted text-xs font-semibold">MG</div><div className="min-w-0"><p className="truncate text-sm font-medium">María González</p><p className="truncate text-xs text-muted-foreground">Administradora</p></div><ChevronDown className="ml-auto size-4 text-muted-foreground" /></div></div>
         </aside>
-
+        {showMobileNav && <button aria-label="Cerrar menú" onClick={() => setShowMobileNav(false)} className="fixed inset-0 z-10 bg-foreground/20 lg:hidden" />}
         <main className="min-w-0 flex-1">
-          <header className="flex items-center justify-between border-b border-border px-5 py-5 sm:px-10 lg:px-12">
-            <button className="lg:hidden" aria-label="Abrir menú"><Menu className="size-5" /></button>
-            <div className="hidden text-sm text-muted-foreground sm:block">Controles <span className="px-2">/</span> Nuevo control</div>
-            <div className="ml-auto flex items-center gap-3"><button aria-label="Buscar" className="rounded-lg p-2 hover:bg-muted"><Search className="size-4" /></button><div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold lg:hidden">MG</div></div>
-          </header>
-
-          <div className="mx-auto max-w-5xl px-5 py-10 sm:px-10 lg:px-12 lg:py-14">
-            <div className="mb-10 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-              <div><p className="mb-3 text-sm font-medium text-primary">Nuevo control de salarios</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Armemos el control del mes</h1><p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">Cargá los recibos y las transferencias para comparar lo que se liquidó con lo que efectivamente se pagó.</p></div>
-              <div className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">Septiembre 2026 <ChevronDown className="ml-1 inline size-3" /></div>
-            </div>
-
-            <section className="grid gap-5 md:grid-cols-2" aria-label="Carga de documentos">
-              <UploadCard icon={FileText} title="Recibos de sueldo" description="PDF o imágenes de los recibos" count={receipts} onAdd={() => addFiles("receipt")} onManual={() => setManualType("receipt")} />
-              <UploadCard icon={Landmark} title="Transferencias bancarias" description="Extractos o comprobantes de pago" count={transfers} onAdd={() => addFiles("transfer")} onManual={() => setManualType("transfer")} />
-            </section>
-
-            <div className="my-8 flex items-center gap-4"><div className="h-px flex-1 bg-border" /><span className="text-xs text-muted-foreground">o ingresá un registro manualmente</span><div className="h-px flex-1 bg-border" /></div>
-            <div className="flex flex-wrap gap-3"><button onClick={() => setManualType("receipt")} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-medium hover:bg-muted"><Plus className="size-4" />Agregar recibo</button><button onClick={() => setManualType("transfer")} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-medium hover:bg-muted"><Plus className="size-4" />Agregar transferencia</button></div>
-
-            <section className="mt-12 rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><h2 className="font-semibold">Resumen de carga</h2><p className="mt-1 text-sm text-muted-foreground">Revisá que estén todos los documentos antes de analizar.</p></div><div className="flex gap-6 text-sm"><span><strong className="mr-1 text-lg">{receipts}</strong><span className="text-muted-foreground">recibos</span></span><span><strong className="mr-1 text-lg">{transfers}</strong><span className="text-muted-foreground">transferencias</span></span></div></div>{analyzed && <div className="mt-5 flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-3 text-sm text-primary"><Check className="size-4" />Análisis listo: no se detectaron diferencias en esta simulación.</div>}<button disabled={!receipts && !transfers} onClick={() => setAnalyzed(true)} className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto">Analizar documentos<ArrowUpRight className="size-4" /></button></section>
-          </div>
+          <header className="flex items-center justify-between border-b border-border px-5 py-5 sm:px-10 lg:px-12"><button className="lg:hidden" onClick={() => setShowMobileNav(true)} aria-label="Abrir menú"><Menu className="size-5" /></button><div className="hidden text-sm text-muted-foreground sm:block">{screen === "control" ? "Controles / Nuevo control" : navItems.find((item) => item.screen === screen)?.label}</div><div className="ml-auto flex items-center gap-3"><button aria-label="Buscar" className="rounded-lg p-2 hover:bg-muted"><Search className="size-4" /></button><button aria-label="Notificaciones" className="rounded-lg p-2 hover:bg-muted"><Bell className="size-4" /></button><div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold lg:hidden">MG</div></div></header>
+          {screen === "control" && <ControlScreen receipts={receipts} transfers={transfers} analyzed={analyzed} onAdd={addFile} onModal={setModal} onAnalyze={() => { setAnalyzed(true); setScreen("results"); }} />}
+          {screen === "results" && <ResultsScreen onBack={() => setScreen("control")} />}
+          {screen === "workers" && <WorkersScreen />}
+          {screen === "settings" && <SettingsScreen />}
         </main>
       </div>
-      {manualType && <ManualDialog type={manualType} onClose={() => setManualType(null)} onSave={() => { addFiles(manualType); setManualType(null); }} />}
+      {modal && <ManualDialog type={modal} onClose={() => setModal(null)} onSave={() => { addFile(modal); setModal(null); }} />}
     </div>
   );
 }
 
-function UploadCard({ icon: Icon, title, description, count, onAdd, onManual }: { icon: typeof FileText; title: string; description: string; count: number; onAdd: () => void; onManual: () => void }) {
-  return <div className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-start justify-between"><div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="size-5" /></div>{count > 0 && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{count} cargado{count !== 1 && "s"}</span>}</div><h2 className="mt-5 font-semibold">{title}</h2><p className="mt-1 text-sm text-muted-foreground">{description}</p><button onClick={onAdd} className="mt-6 flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-primary/35 bg-primary/[0.03] px-4 py-6 text-sm text-muted-foreground hover:bg-primary/[0.07]"><Plus className="size-5 text-primary" /><span><strong className="font-medium text-foreground">Seleccionar archivos</strong> o arrastralos acá</span></button><button onClick={onManual} className="mt-4 w-full text-center text-xs font-medium text-primary hover:underline">Ingresar manualmente</button></div>;
+function PageShell({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children: React.ReactNode }) { return <div className="mx-auto max-w-6xl px-5 py-10 sm:px-10 lg:px-12 lg:py-14"><p className="mb-3 text-sm font-medium text-primary">{eyebrow}</p><h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">{title}</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>{children}</div>; }
+
+function ControlScreen({ receipts, transfers, analyzed, onAdd, onModal, onAnalyze }: { receipts: number; transfers: number; analyzed: boolean; onAdd: (type: "receipt" | "transfer") => void; onModal: (type: Modal) => void; onAnalyze: () => void }) {
+  return <PageShell eyebrow="Nuevo control de salarios" title="Armemos el control del mes" description="Cargá los recibos y las transferencias para comparar lo que se liquidó con lo que efectivamente se pagó."><div className="mt-10 grid gap-5 md:grid-cols-2"><UploadCard icon={FileText} title="Recibos de sueldo" description="PDF o imágenes de los recibos" count={receipts} onAdd={() => onAdd("receipt")} onManual={() => onModal("receipt")} /><UploadCard icon={Landmark} title="Transferencias bancarias" description="Extractos o comprobantes de pago" count={transfers} onAdd={() => onAdd("transfer")} onManual={() => onModal("transfer")} /></div><div className="my-8 flex items-center gap-4"><div className="h-px flex-1 bg-border" /><span className="text-xs text-muted-foreground">o ingresá un registro manualmente</span><div className="h-px flex-1 bg-border" /></div><div className="flex flex-wrap gap-3"><button onClick={() => onModal("receipt")} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-medium hover:bg-muted"><Plus className="size-4" />Agregar recibo</button><button onClick={() => onModal("transfer")} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-medium hover:bg-muted"><Plus className="size-4" />Agregar transferencia</button></div><section className="mt-12 rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><h2 className="font-semibold">Resumen de carga</h2><p className="mt-1 text-sm text-muted-foreground">Revisá que estén todos los documentos antes de analizar.</p></div><div className="flex gap-6 text-sm"><span><strong className="mr-1 text-lg">{receipts}</strong><span className="text-muted-foreground">recibos</span></span><span><strong className="mr-1 text-lg">{transfers}</strong><span className="text-muted-foreground">transferencias</span></span></div></div>{analyzed && <div className="mt-5 flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-3 text-sm text-primary"><Check className="size-4" />Documentos listos para revisar.</div>}<button disabled={!receipts && !transfers} onClick={onAnalyze} className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto">Analizar documentos<ArrowUpRight className="size-4" /></button></section></PageShell>;
 }
 
-function ManualDialog({ type, onClose, onSave }: { type: "receipt" | "transfer"; onClose: () => void; onSave: () => void }) {
-  return <div className="fixed inset-0 z-10 flex items-center justify-center bg-foreground/30 p-5" role="dialog" aria-modal="true" aria-labelledby="manual-title"><div className="w-full max-w-md rounded-2xl bg-card p-6 shadow-xl"><div className="flex items-start justify-between"><div><h2 id="manual-title" className="text-lg font-semibold">Ingresar {type === "receipt" ? "recibo" : "transferencia"} manualmente</h2><p className="mt-1 text-sm text-muted-foreground">Completá los datos para sumar este registro al control.</p></div><button onClick={onClose} aria-label="Cerrar" className="rounded-lg p-1 text-muted-foreground hover:bg-muted"><X className="size-4" /></button></div><div className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-medium">Trabajador<input className="h-10 rounded-lg border border-border bg-background px-3 font-normal outline-none focus:border-primary" placeholder="Nombre y apellido" /></label><label className="grid gap-2 text-sm font-medium">Cédula<input className="h-10 rounded-lg border border-border bg-background px-3 font-normal outline-none focus:border-primary" placeholder="Ej. 4.567.890-1" /></label><label className="grid gap-2 text-sm font-medium">Importe<input className="h-10 rounded-lg border border-border bg-background px-3 font-normal outline-none focus:border-primary" placeholder="$ 0,00" /></label></div><div className="mt-6 flex justify-end gap-3"><button onClick={onClose} className="h-10 rounded-xl px-4 text-sm font-medium hover:bg-muted">Cancelar</button><button onClick={onSave} className="h-10 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90">Guardar registro</button></div></div></div>;
-}
+function UploadCard({ icon: Icon, title, description, count, onAdd, onManual }: { icon: typeof FileText; title: string; description: string; count: number; onAdd: () => void; onManual: () => void }) { return <div className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-start justify-between"><div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="size-5" /></div>{count > 0 && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{count} cargado{count !== 1 && "s"}</span>}</div><h2 className="mt-5 font-semibold">{title}</h2><p className="mt-1 text-sm text-muted-foreground">{description}</p><button onClick={onAdd} className="mt-6 flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-primary/35 bg-primary/[0.03] px-4 py-6 text-sm text-muted-foreground hover:bg-primary/[0.07]"><UploadCloud className="size-5 text-primary" /><span><strong className="font-medium text-foreground">Seleccionar archivos</strong> o arrastralos acá</span></button><button onClick={onManual} className="mt-4 w-full text-center text-xs font-medium text-primary hover:underline">Ingresar manualmente</button></div>; }
+
+function ResultsScreen({ onBack }: { onBack: () => void }) { return <PageShell eyebrow="Control de septiembre 2026" title="Resultado del análisis" description="Comparamos los registros cargados y encontramos la siguiente información."><button onClick={onBack} className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />Volver a la carga</button><div className="mt-8 grid gap-4 sm:grid-cols-3"><Metric icon={WalletCards} label="Total liquidado" value="$ 351.500" /><Metric icon={Landmark} label="Total transferido" value="$ 351.500" /><Metric icon={BarChart3} label="Coincidencia" value="100%" /></div><section className="mt-6 rounded-2xl border border-border bg-card p-6"><div className="flex items-start gap-4"><div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><Check className="size-5" /></div><div><h2 className="font-semibold">Todo coincide</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">No encontramos diferencias entre los recibos y las transferencias cargadas para este período.</p></div></div><div className="mt-6 flex flex-wrap gap-3"><button className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"><FileCheck2 className="size-4" />Ver detalle por trabajador</button><button className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium hover:bg-muted"><ArrowUpRight className="size-4" />Exportar informe</button></div></section></PageShell>; }
+function Metric({ icon: Icon, label, value }: { icon: typeof WalletCards; label: string; value: string }) { return <div className="rounded-2xl border border-border bg-card p-5"><Icon className="size-5 text-primary" /><p className="mt-5 text-sm text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p></div>; }
+
+function WorkersScreen() { return <PageShell eyebrow="Espacio de trabajo" title="Trabajadores" description="Consultá las personas incluidas en tus controles y sus datos de liquidación."><div className="mt-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div className="relative max-w-sm flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input className="h-10 w-full rounded-xl border border-border bg-card pl-9 pr-3 text-sm outline-none focus:border-primary" placeholder="Buscar trabajador" /></div><button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"><Plus className="size-4" />Nuevo trabajador</button></div><div className="mt-6 overflow-x-auto rounded-2xl border border-border bg-card"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-border bg-muted/50 text-xs text-muted-foreground"><tr><th className="px-5 py-4 font-medium">Trabajador</th><th className="px-5 py-4 font-medium">Cargo</th><th className="px-5 py-4 font-medium">Sueldo nominal</th><th className="px-5 py-4 font-medium">Estado</th></tr></thead><tbody>{workers.map((worker) => <tr key={worker.id} className="border-b border-border last:border-0"><td className="px-5 py-4"><p className="font-medium">{worker.name}</p><p className="mt-1 text-xs text-muted-foreground">CI {worker.id}</p></td><td className="px-5 py-4 text-muted-foreground">{worker.role}</td><td className="px-5 py-4 font-medium">{worker.salary}</td><td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${worker.status === "Al día" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{worker.status}</span></td></tr>)}</tbody></table></div></PageShell>; }
+
+function SettingsScreen() { return <PageShell eyebrow="Espacio de trabajo" title="Configuración" description="Personalizá tu espacio de trabajo y las reglas de tus controles."><div className="mt-10 grid gap-5 lg:grid-cols-2"><SettingCard icon={SlidersHorizontal} title="Preferencias generales" description="Definí cómo se muestran y agrupan tus controles."><label className="flex items-center justify-between gap-5 border-b border-border py-4 text-sm"><span><strong className="block font-medium">Moneda predeterminada</strong><span className="text-xs text-muted-foreground">Usada en los importes del sistema</span></span><select className="rounded-lg border border-border bg-background px-3 py-2 text-sm"><option>UYU · $</option><option>ARS · $</option></select></label><label className="flex items-center justify-between gap-5 py-4 text-sm"><span><strong className="block font-medium">Avisar diferencias</strong><span className="text-xs text-muted-foreground">Mostrar alertas en cada análisis</span></span><input type="checkbox" defaultChecked className="size-4 accent-primary" /></label></SettingCard><SettingCard icon={CircleHelp} title="Ayuda y soporte" description="Estamos para ayudarte a usar Saldo claro."><div className="rounded-xl bg-muted p-4"><p className="text-sm font-medium">¿Tenés alguna duda?</p><p className="mt-1 text-sm leading-6 text-muted-foreground">Revisá nuestra guía rápida o escribinos para recibir asistencia.</p><button className="mt-4 text-sm font-semibold text-primary hover:underline">Abrir centro de ayuda <ArrowUpRight className="ml-1 inline size-3" /></button></div></SettingCard></div></PageShell>; }
+function SettingCard({ icon: Icon, title, description, children }: { icon: typeof SlidersHorizontal; title: string; description: string; children: React.ReactNode }) { return <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-start gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="size-5" /></div><div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-sm text-muted-foreground">{description}</p></div></div><div className="mt-5">{children}</div></section>; }
+
+function ManualDialog({ type, onClose, onSave }: { type: "receipt" | "transfer"; onClose: () => void; onSave: () => void }) { return <div className="fixed inset-0 z-30 flex items-center justify-center bg-foreground/30 p-5" role="dialog" aria-modal="true" aria-labelledby="manual-title"><div className="w-full max-w-md rounded-2xl bg-card p-6 shadow-xl"><div className="flex items-start justify-between"><div><h2 id="manual-title" className="text-lg font-semibold">Ingresar {type === "receipt" ? "recibo" : "transferencia"} manualmente</h2><p className="mt-1 text-sm text-muted-foreground">Completá los datos para sumar este registro al control.</p></div><button onClick={onClose} aria-label="Cerrar" className="rounded-lg p-1 text-muted-foreground hover:bg-muted"><X className="size-4" /></button></div><div className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-medium">Trabajador<input className="h-10 rounded-lg border border-border bg-background px-3 font-normal outline-none focus:border-primary" placeholder="Nombre y apellido" /></label><label className="grid gap-2 text-sm font-medium">Cédula<input className="h-10 rounded-lg border border-border bg-background px-3 font-normal outline-none focus:border-primary" placeholder="Ej. 4.567.890-1" /></label><label className="grid gap-2 text-sm font-medium">Importe<input className="h-10 rounded-lg border border-border bg-background px-3 font-normal outline-none focus:border-primary" placeholder="$ 0,00" /></label></div><div className="mt-6 flex justify-end gap-3"><button onClick={onClose} className="h-10 rounded-xl px-4 text-sm font-medium hover:bg-muted">Cancelar</button><button onClick={onSave} className="h-10 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90">Guardar registro</button></div></div></div>; }
