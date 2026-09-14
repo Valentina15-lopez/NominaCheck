@@ -24,10 +24,26 @@
   --font-mono: var(--font-geist-mono);
 }
 
-* { border-color: var(--border); }
-body { background: var(--background); color: var(--foreground); }
-button, input { font: inherit; }
-button { cursor: pointer; }
-button:disabled { cursor: not-allowed; }
-::selection { background: #cbe7d7; }
-html { background: var(--background); }
+* {
+  border-color: var(--border);
+}
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+::selection {
+  background: #cbe7d7;
+}
+html {
+  background: var(--background);
+}
