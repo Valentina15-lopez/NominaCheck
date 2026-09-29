@@ -1,8 +1,13 @@
 import { ArrowRight, CheckCircle2 } from "lucide-react";
+import type { NominaCheckResult } from "@/types/nominacheck";
 
-const categories = ["Nómina", "LS", "Recibos", "Transferencias"];
-
-export function ProcessingScreen({ onContinue }: { onContinue: () => void }) {
+export function ProcessingScreen({
+  result,
+  onContinue,
+}: {
+  result: NominaCheckResult;
+  onContinue: () => void;
+}) {
   return (
     <div className="mx-auto max-w-3xl">
       <p className="text-primary text-sm font-medium">Paso 3 de 6</p>
@@ -10,14 +15,15 @@ export function ProcessingScreen({ onContinue }: { onContinue: () => void }) {
         Procesando el control
       </h1>
       <p className="text-muted-foreground mt-2 text-sm">
-        Las cuatro categorías se están leyendo en paralelo.
+        Los documentos se clasifican automáticamente y se analizan en paralelo.
       </p>
       <div className="border-border bg-card mt-8 rounded-2xl border p-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="font-semibold">Procesamiento completo</p>
             <p className="text-muted-foreground mt-1 text-sm">
-              Todos los documentos fueron incorporados.
+              Estado: {result.processing_status}. Se clasificaron{" "}
+              {result.documents.length} documentos.
             </p>
           </div>
           <CheckCircle2 className="text-primary size-7" aria-hidden />
@@ -26,16 +32,19 @@ export function ProcessingScreen({ onContinue }: { onContinue: () => void }) {
           <div className="bg-primary h-full w-full rounded-full" />
         </div>
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
-          {categories.map((category) => (
+          {result.documents.map((document) => (
             <div
-              key={category}
+              key={document.document_id}
               className="bg-muted/60 flex items-center gap-3 rounded-xl p-4"
             >
               <CheckCircle2 className="text-primary size-5" aria-hidden />
               <div>
-                <p className="text-sm font-medium">{category}</p>
+                <p className="truncate text-sm font-medium">
+                  {document.filename}
+                </p>
                 <p className="text-muted-foreground text-xs">
-                  Lectura completada
+                  {document.classification} ·{" "}
+                  {Math.round(document.confidence * 100)}% confianza
                 </p>
               </div>
             </div>

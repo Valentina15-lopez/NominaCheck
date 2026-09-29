@@ -12,7 +12,7 @@ export function StepHeader({
   const current = Math.max(0, WORKFLOW_SCREENS.indexOf(screen));
 
   return (
-    <div className="mb-8">
+    <div className="mb-8 print:hidden">
       <button
         type="button"
         onClick={onBack}
