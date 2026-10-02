@@ -1,54 +1,172 @@
 # NóminaCheck
 
-Aplicación para asistir a profesionales contables en la revisión de
-liquidaciones salariales. Analiza la LS de Odoo, la nómina, los recibos de
-sueldo y las transferencias bancarias, y propone coincidencias por
-trabajador, período, acumulación laboral/cargo y concepto salarial.
+Asistente para contadores que revisan liquidaciones salariales en Uruguay.
 
-Construida con Next.js 15 (App Router), TypeScript estricto y Tailwind CSS v4.
+Cargás la liquidación de Odoo (LS), la nómina, los recibos de sueldo y los
+comprobantes bancarios de un período. La app extrae lo visible en esos
+archivos, propone coincidencias por trabajador y te muestra dónde hay
+faltantes, diferencias de importe o casos que hay que confirmar a mano.
+
+NóminaCheck **no aprueba liquidaciones** ni sustituye la revisión del
+contador. Es una herramienta de apoyo: extrae, relaciona y señala
+inconsistencias.
+
+## Qué resuelve
+
+Un control salarial típico mezcla planillas, PDFs escaneados y extractos
+bancarios. El trabajo lento es cruzar, para cada persona:
+
+- lo declarado en Odoo
+- lo informado en la nómina
+- lo que figura en el recibo
+- lo que realmente se transfirió
+
+La unidad de conciliación no es “el trabajador”. Es:
+
+**trabajador + período + acumulación laboral/cargo + concepto salarial**
+
+Una misma persona puede tener más de un cargo, más de un recibo y más de un
+pago en el mismo mes. El sistema no los fusiona solo porque coincida el
+nombre.
+
+Hay dos cadenas de control:
+
+| Cadena | Compara | Pregunta |
+| --- | --- | --- |
+| Nominal | LS ↔ nómina ↔ recibo | ¿El sueldo declarado coincide? |
+| Líquido | líquido del recibo ↔ suma de transferencias | ¿Se pagó lo que corresponde? |
+
+Los pagos a cuenta y de saldo se conservan por separado y después se
+suman. Una diferencia dentro de la tolerancia de redondeo se marca como
+`CORRECTO_CON_REDONDEO`; nunca se oculta el importe exacto.
+
+## Flujo de uso
+
+1. Iniciar sesión.
+2. Crear un control: empresa, período (`AAAA-MM`) y, si aplica, tolerancia
+   de redondeo.
+3. Subir juntos LS, nómina, recibos y comprobantes. La clasificación es
+   automática por contenido, no por el nombre del archivo.
+4. Revisar el resultado por trabajador: coincidencias propuestas,
+   documentos sin emparejar e incidencias.
+5. Ver el resumen y el informe del período.
+
+Formatos admitidos: **PDF, PNG, JPG, CSV y XLSX**. Hasta 40 archivos por
+corrida, 15 MB cada uno.
+
+## Qué no hace
+
+- No inventa cédulas, nombres, cuentas ni importes ilegibles.
+- No valida el cálculo interno del recibo (BPS, IRPF, FONASA, descuentos,
+  horas extras, embargos).
+- No interpreta cumplimiento de la Ley de Tercerizaciones.
+- No descarta recibos repetidos: puede ser duplicado o otra acumulación.
+- No distribuye transferencias entre cargos si no hay evidencia de a cuál
+  pertenecen.
 
 ## Stack
 
-- Next.js 15 · App Router · TypeScript
+- Next.js 15 (App Router) · React 19 · TypeScript
 - Tailwind CSS v4
-- ESLint + Prettier
-- Lucide React, `clsx` y `tailwind-merge` (`cn()`)
+- Supabase Auth
+- Mistral (OCR + extracción estructurada)
+- Zod para validar la salida del modelo
+- Tests con el runner nativo de Node (`tsx --test`)
 
-## Desarrollo
+## Requisitos
+
+- Node.js 20.9 o superior
+- Una cuenta de [Supabase](https://supabase.com) con Auth habilitado
+- Una API key de [Mistral](https://mistral.ai) (OCR y chat)
+
+## Configuración
 
 ```bash
 cp .env.example .env.local
 npm install
+```
+
+Completá `.env.local`:
+
+```bash
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+MISTRAL_API_KEY=
+
+# Opcionales. Si no se definen, se usan estos valores:
+# NOMINACHECK_MISTRAL_MODEL=mistral-small-latest
+# NOMINACHECK_OCR_MODEL=mistral-ocr-4-1
+```
+
+Después:
+
+```bash
 npm run dev
 ```
 
-Scripts principales:
+La app queda en [http://localhost:3000](http://localhost:3000). El registro
+está en `/registro`.
 
-- `npm run dev`: servidor local con Turbopack.
-- `npm run build`: build optimizado de producción.
-- `npm run start`: ejecuta el build de producción.
-- `npm run lint`: valida ESLint.
-- `npm run typecheck`: valida TypeScript estricto.
-- `npm run format:check`: comprueba el formato con Prettier.
+Sin las variables de Supabase o Mistral, el login y el análisis no
+funcionan: el endpoint `/api/analyze` exige sesión y `MISTRAL_API_KEY`.
+
+## Scripts
+
+| Comando | Qué hace |
+| --- | --- |
+| `npm run dev` | Servidor local con Turbopack |
+| `npm run build` | Build de producción |
+| `npm run start` | Sirve el build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript estricto (`tsc --noEmit`) |
+| `npm test` | Tests del motor de conciliación |
+| `npm run format` / `format:check` | Prettier |
+
+## Cómo está armado
+
+```
+src/
+  app/                  Rutas, login/registro y POST /api/analyze
+  components/payroll/   Pantallas del flujo de control
+  lib/nominacheck/      Extracción, normalización y conciliación
+  config/               Códigos de concepto salarial
+  types/nominacheck.ts  Contrato del resultado
+```
+
+El análisis corre en el servidor (`src/app/api/analyze/route.ts`, hasta 300 s):
+
+1. **OCR / parseo.** PDF e imágenes van a Mistral OCR. CSV y XLSX se leen
+   en crudo.
+2. **Extracción.** Un segundo llamado a Mistral clasifica el archivo y
+   copia solo lo visible a un JSON validado con Zod.
+3. **Conciliación determinística.** `src/lib/nominacheck/process.ts`
+   normaliza cédulas, nombres e importes (formato uruguayo `60.045,98` vs.
+   internacional), arma las coincidencias y calcula estados.
+
+La especificación funcional está en `NOMINACHECK_SYSTEM_PROMPT.md`. El
+codificador de conceptos (`1` sueldo, `2` aguinaldo, `41` salario
+vacacional, etc.) vive en `src/config/concept-codes.ts` para poder
+ajustarlo sin tocar el motor.
+
+### Estados que puede devolver
+
+`CORRECTO` · `CORRECTO_CON_REDONDEO` · `CORRECTO_CON_OBSERVACION` ·
+`ADVERTENCIA` · `REVISION_MANUAL` · `DOCUMENTACION_INCOMPLETA` · `ERROR` ·
+`NO_PROCESABLE`
+
+El estado general nunca es más favorable que el caso más crítico del lote.
 
 ## CI/CD
 
-El workflow de GitHub Actions valida formato, lint, tipos y build en cada pull
-request y push a `main`.
+GitHub Actions corre formato, lint, tipos y build en cada pull request y
+en cada push a `main`.
 
-Para activar los despliegues continuos:
+Para desplegar en Vercel:
 
-1. Publicá este repositorio en GitHub y verificá que la rama de producción sea
-   `main`.
-2. En Vercel, elegí **Add New > Project**, importá el repositorio y conservá el
-   preset detectado de Next.js.
-3. Configurá `NEXT_PUBLIC_SITE_URL` con el dominio de producción. Agregalo tanto
-   al entorno **Production** como a **Preview** si querés metadatos absolutos
-   correctos en ambos.
-4. Desplegá el proyecto. Vercel creará previews para las ramas y pull requests,
-   y publicará producción con cada cambio en `main`.
-5. En GitHub, protegé `main` y exigí que el job **Lint, types and build** termine
-   correctamente antes de permitir el merge.
+1. Importá el repo (preset Next.js). La rama de producción es `main`.
+2. Configurá las mismas variables de entorno en Production y Preview.
+3. Protegé `main` exigiendo el job **Lint, types and build**.
 
-No es necesario guardar tokens de Vercel en GitHub cuando se utiliza la
-integración nativa de Vercel con GitHub.
+No hace falta guardar tokens de Vercel en GitHub si usás la integración
+nativa con GitHub.
