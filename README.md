@@ -1,6 +1,11 @@
-# PeluDEV
+# NóminaCheck
 
-Portafolio construido con Next.js 15 (App Router), TypeScript estricto y Tailwind CSS v4.
+Aplicación para asistir a profesionales contables en la revisión de
+liquidaciones salariales. Analiza la LS de Odoo, la nómina, los recibos de
+sueldo y las transferencias bancarias, y propone coincidencias por
+trabajador, período, acumulación laboral/cargo y concepto salarial.
+
+Construida con Next.js 15 (App Router), TypeScript estricto y Tailwind CSS v4.
 
 ## Stack
 

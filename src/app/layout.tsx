@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SITE } from "@/constants/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Nuevo control de salarios | NóminaCheck",
-  description: "Compará recibos de sueldo y transferencias en un solo control.",
+  title: {
+    default: `Nuevo control de salarios | ${SITE.name}`,
+    template: `%s | ${SITE.name}`,
+  },
+  description: SITE.description,
 };
 
 export default function RootLayout({

@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { SITE } from "@/constants/site";
 import type { WorkerStatus } from "@/types/payroll";
 
 export function Brand({ compact = false }: { compact?: boolean }) {
@@ -12,7 +13,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
         S
       </div>
       <div>
-        <p className="font-semibold">NóminaCheck</p>
+        <p className="font-semibold">{SITE.name}</p>
         <p className="text-muted-foreground text-xs">Control de salarios</p>
       </div>
     </div>
