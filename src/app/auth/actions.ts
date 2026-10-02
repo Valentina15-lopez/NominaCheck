@@ -94,7 +94,7 @@ export async function signUpAction(
   return {
     message: data.session
       ? `La cuenta de ${parsed.data.fullName} se creó correctamente.`
-      : "Cuenta creada. Revisá tu correo para confirmar la dirección.",
+      : "Cuenta creada. Revisá tu correo para confirmar la dirección; hasta que no la confirmes no vas a poder ingresar.",
   };
 }
 
@@ -117,7 +117,23 @@ export async function signInAction(
   });
 
   if (error) {
-    return { error: "El correo electrónico o la contraseña no son correctos." };
+    console.error("Error al iniciar sesión en Supabase:", {
+      code: error.code,
+      message: error.message,
+      status: error.status,
+    });
+
+    if (error.code === "email_not_confirmed") {
+      return {
+        error:
+          "Tu correo todavía no está confirmado. Revisá tu bandeja de entrada (y spam) y usá el enlace de confirmación.",
+      };
+    }
+
+    return {
+      error:
+        "El correo electrónico o la contraseña no son correctos. Si te registraste recién, confirmá el correo antes de ingresar.",
+    };
   }
 
   return {
