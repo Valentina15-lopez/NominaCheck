@@ -31,10 +31,10 @@ nombre.
 
 Hay dos cadenas de control:
 
-| Cadena | Compara | Pregunta |
-| --- | --- | --- |
-| Nominal | LS ↔ nómina ↔ recibo | ¿El sueldo declarado coincide? |
-| Líquido | líquido del recibo ↔ suma de transferencias | ¿Se pagó lo que corresponde? |
+| Cadena  | Compara                                     | Pregunta                       |
+| ------- | ------------------------------------------- | ------------------------------ |
+| Nominal | LS ↔ nómina ↔ recibo                        | ¿El sueldo declarado coincide? |
+| Líquido | líquido del recibo ↔ suma de transferencias | ¿Se pagó lo que corresponde?   |
 
 Los pagos a cuenta y de saldo se conservan por separado y después se
 suman. Una diferencia dentro de la tolerancia de redondeo se marca como
@@ -117,15 +117,15 @@ funcionan: el endpoint `/api/analyze` exige sesión y `MISTRAL_API_KEY`.
 
 ## Scripts
 
-| Comando | Qué hace |
-| --- | --- |
-| `npm run dev` | Servidor local con Turbopack |
-| `npm run build` | Build de producción |
-| `npm run start` | Sirve el build |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | TypeScript estricto (`tsc --noEmit`) |
-| `npm test` | Tests del motor de conciliación |
-| `npm run format` / `format:check` | Prettier |
+| Comando                           | Qué hace                             |
+| --------------------------------- | ------------------------------------ |
+| `npm run dev`                     | Servidor local con Turbopack         |
+| `npm run build`                   | Build de producción                  |
+| `npm run start`                   | Sirve el build                       |
+| `npm run lint`                    | ESLint                               |
+| `npm run typecheck`               | TypeScript estricto (`tsc --noEmit`) |
+| `npm test`                        | Tests del motor de conciliación      |
+| `npm run format` / `format:check` | Prettier                             |
 
 ## Cómo está armado
 

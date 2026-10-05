@@ -1,11 +1,27 @@
 import { AlertTriangle, ExternalLink } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DetailCard, StatusBadge } from "@/components/payroll/ui";
 import type {
   ExtractedField,
   MoneyField,
   NominaCheckResult,
 } from "@/types/nominacheck";
+
+const CONFIRMATIONS_KEY = "nominacheck:human-confirmations";
+
+// La pantalla solo se monta en el cliente, con un resultado ya analizado, así
+// que las confirmaciones se leen al inicializar el estado y no en un efecto.
+function readConfirmedRecords(): string[] {
+  if (typeof window === "undefined") return [];
+  const stored = sessionStorage.getItem(CONFIRMATIONS_KEY);
+  if (!stored) return [];
+  try {
+    return JSON.parse(stored) as string[];
+  } catch {
+    sessionStorage.removeItem(CONFIRMATIONS_KEY);
+    return [];
+  }
+}
 
 export function ReviewScreen({
   result,
@@ -18,29 +34,23 @@ export function ReviewScreen({
   setSelected: (index: number) => void;
   onContinue: () => void;
 }) {
-  const [selectedRecord, setSelectedRecord] = useState(0);
-  const [confirmedRecords, setConfirmedRecords] = useState<string[]>([]);
+  // El registro elegido se guarda junto al trabajador al que pertenece: así
+  // cambiar de persona vuelve al primer registro sin recurrir a un efecto.
+  const [recordSelection, setRecordSelection] = useState({
+    worker: selected,
+    index: 0,
+  });
+  const [confirmedRecords, setConfirmedRecords] =
+    useState<string[]>(readConfirmedRecords);
+  const selectedRecord =
+    recordSelection.worker === selected ? recordSelection.index : 0;
   const worker = result.workers[selected] ?? result.workers[0];
   const record = worker?.employment_records[selectedRecord];
-
-  useEffect(() => setSelectedRecord(0), [selected]);
-  useEffect(() => {
-    const stored = sessionStorage.getItem("nominacheck:human-confirmations");
-    if (!stored) return;
-    try {
-      setConfirmedRecords(JSON.parse(stored) as string[]);
-    } catch {
-      sessionStorage.removeItem("nominacheck:human-confirmations");
-    }
-  }, []);
 
   function confirmRecord(recordId: string) {
     const next = [...new Set([...confirmedRecords, recordId])];
     setConfirmedRecords(next);
-    sessionStorage.setItem(
-      "nominacheck:human-confirmations",
-      JSON.stringify(next),
-    );
+    sessionStorage.setItem(CONFIRMATIONS_KEY, JSON.stringify(next));
   }
 
   if (!worker || !record) {
@@ -130,7 +140,9 @@ export function ReviewScreen({
                 <button
                   key={item.employment_record_id}
                   type="button"
-                  onClick={() => setSelectedRecord(index)}
+                  onClick={() =>
+                    setRecordSelection({ worker: selected, index })
+                  }
                   className={`rounded-lg border px-3 py-2 text-xs ${
                     selectedRecord === index
                       ? "border-primary bg-primary/10 text-primary"
