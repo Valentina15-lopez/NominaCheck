@@ -3,6 +3,7 @@ import {
   buildResultFromExtractions,
   processDocuments,
 } from "@/lib/nominacheck/process";
+import { hasSupabaseConfiguration } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import type { ControlInput } from "@/types/nominacheck";
 
@@ -23,10 +24,7 @@ const PERIOD_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])$/;
 
 export async function POST(request: Request) {
   try {
-    if (
-      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ) {
+    if (!hasSupabaseConfiguration()) {
       return errorResponse(
         "CONFIGURACION_INCOMPLETA",
         "Falta configurar la conexión con Supabase.",
