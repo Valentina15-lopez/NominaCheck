@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { hasSupabaseConfiguration } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 const credentialsSchema = z.object({
@@ -24,13 +25,6 @@ export type AuthActionResult = {
   message?: string;
   userName?: string;
 };
-
-function hasSupabaseConfiguration() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  );
-}
 
 export async function signUpAction(
   values: z.infer<typeof registrationSchema>,

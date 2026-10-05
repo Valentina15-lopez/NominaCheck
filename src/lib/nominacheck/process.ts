@@ -627,7 +627,12 @@ function reconcileRecord(
     }
 
     for (const transfer of record.transfers) {
-      if (paymentFallsOutsidePeriod(transfer.payment_date.original, record.period.normalized)) {
+      if (
+        paymentFallsOutsidePeriod(
+          transfer.payment_date.original,
+          record.period.normalized,
+        )
+      ) {
         statuses.push("CORRECTO_CON_OBSERVACION");
         record.observations.push(
           "La transferencia fue realizada fuera del mes liquidado.",
@@ -756,8 +761,7 @@ function transferMatchesWorker(
   const transferAccount = normalizeAccount(transfer.account.original);
   const accountMatches = records.some(
     (record) =>
-      transferAccount &&
-      record.receipt?.account.normalized === transferAccount,
+      transferAccount && record.receipt?.account.normalized === transferAccount,
   );
   if (accountMatches) return true;
 
@@ -817,10 +821,7 @@ function combineMatchDetails(
   };
 }
 
-function recordsAreCompatible(
-  payroll: PayrollEntry,
-  receipt: ReceiptRecord,
-) {
+function recordsAreCompatible(payroll: PayrollEntry, receipt: ReceiptRecord) {
   const comparablePairs = [
     [payroll.document_number.normalized, receipt.document_number.normalized],
     [payroll.period.normalized, receipt.period.normalized],
@@ -863,9 +864,8 @@ function preferredField<T>(
   ...fields: Array<ExtractedField<T> | null | undefined>
 ) {
   return (
-    fields.find(
-      (field): field is ExtractedField<T> =>
-        Boolean(field && (field.normalized !== null || field.original !== null)),
+    fields.find((field): field is ExtractedField<T> =>
+      Boolean(field && (field.normalized !== null || field.original !== null)),
     ) ??
     fields.find((field): field is ExtractedField<T> => Boolean(field)) ??
     emptyField<T>()
@@ -1285,9 +1285,7 @@ function parseNumber(value: string | null) {
 }
 
 function difference(left: number | null, right: number | null) {
-  return left === null || right === null
-    ? null
-    : moneyDifference(left, right);
+  return left === null || right === null ? null : moneyDifference(left, right);
 }
 
 function moneyToCents(value: number | null) {
@@ -1337,7 +1335,8 @@ function addRecordIncident(
     severity,
     worker_id: workerId,
     employment_record_id: record.employment_record_id,
-    document_id: source?.document_id ?? record.odoo?.full_name.source?.document_id ?? null,
+    document_id:
+      source?.document_id ?? record.odoo?.full_name.source?.document_id ?? null,
     description,
     evidence: compactSources([source]),
   });
