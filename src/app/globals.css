@@ -1,25 +1,82 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f9f8;
+  --foreground: #17211d;
+  --card: #ffffff;
+  --primary: #1f7a55;
+  --primary-foreground: #ffffff;
+  --muted: #eef2ef;
+  --muted-foreground: #68756e;
+  --border: #dfe7e2;
+  --input: #dfe7e2;
+  --ring: #1f7a55;
+  --accent: #f7e8b4;
+  --accent-foreground: #7a5b12;
+  --destructive: #c43d3d;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: #cbe7d7;
+}
+
+html {
+  background: var(--background);
+}
+
+@media print {
+  aside {
+    display: none !important;
+  }
+
+  main {
+    padding-left: 0 !important;
+  }
+
+  body,
+  html {
+    background: #ffffff;
+  }
 }
