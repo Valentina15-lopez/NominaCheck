@@ -1,9 +1,4 @@
-import {
-  ArrowRight,
-  Files,
-  Trash2,
-  UploadCloud,
-} from "lucide-react";
+import { ArrowRight, Files, Trash2, UploadCloud } from "lucide-react";
 import { StatusBadge } from "@/components/payroll/ui";
 import type { UploadedDocument } from "@/types/nominacheck";
 
