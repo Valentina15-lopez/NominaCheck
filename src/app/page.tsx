@@ -21,6 +21,13 @@ import type {
   UploadedDocument,
 } from "@/types/nominacheck";
 
+// Se evalúa en build: si no hay credenciales de Supabase la sesión arranca
+// directamente como anónima, sin pasar por un render en "loading".
+const SUPABASE_CONFIGURED = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+);
+
 const INITIAL_CONTROL: ControlInput = {
   organization: "Acme Servicios S.A.",
   period: "2026-08",
@@ -40,7 +47,7 @@ const PREVIOUS_SCREEN: Partial<Record<PayrollScreen, PayrollScreen>> = {
 export default function HomePage() {
   const [authStatus, setAuthStatus] = useState<
     "loading" | "authenticated" | "anonymous"
-  >("loading");
+  >(SUPABASE_CONFIGURED ? "loading" : "anonymous");
   const [userName, setUserName] = useState("Usuario");
   const [screen, setScreen] = useState<PayrollScreen>("controls");
   const [selectedWorker, setSelectedWorker] = useState(0);
@@ -53,13 +60,7 @@ export default function HomePage() {
   const navigate = (nextScreen: PayrollScreen) => setScreen(nextScreen);
 
   useEffect(() => {
-    if (
-      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ) {
-      setAuthStatus("anonymous");
-      return;
-    }
+    if (!SUPABASE_CONFIGURED) return;
 
     const supabase = createClient();
     let isActive = true;
@@ -118,8 +119,7 @@ export default function HomePage() {
         ),
       );
       const unique = supported.filter(
-        (file) =>
-          !keys.has(`${file.name}:${file.size}:${file.lastModified}`),
+        (file) => !keys.has(`${file.name}:${file.size}:${file.lastModified}`),
       );
       return [
         ...current,
