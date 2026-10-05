@@ -14,6 +14,7 @@ import { Sidebar } from "@/components/payroll/sidebar";
 import { StepHeader } from "@/components/payroll/step-header";
 import { UploadScreen } from "@/components/payroll/upload-screen";
 import { createClient } from "@/lib/supabase/client";
+import { hasSupabaseConfiguration } from "@/lib/supabase/config";
 import type { PayrollScreen } from "@/types/payroll";
 import type {
   ControlInput,
@@ -53,10 +54,7 @@ export default function HomePage() {
   const navigate = (nextScreen: PayrollScreen) => setScreen(nextScreen);
 
   useEffect(() => {
-    if (
-      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ) {
+    if (!hasSupabaseConfiguration()) {
       setAuthStatus("anonymous");
       return;
     }

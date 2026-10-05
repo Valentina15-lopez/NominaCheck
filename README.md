@@ -94,6 +94,10 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 MISTRAL_API_KEY=
 
+# En Vercel, la integración de Supabase publica estas mismas credenciales como
+# NEXT_PUBLIC_DATABASE_SUPABASE_URL y NEXT_PUBLIC_DATABASE_SUPABASE_ANON_KEY.
+# La app acepta cualquiera de los dos nombres y prioriza los de la integración.
+
 # Opcionales. Si no se definen, se usan estos valores:
 # NOMINACHECK_MISTRAL_MODEL=mistral-small-latest
 # NOMINACHECK_OCR_MODEL=mistral-ocr-4-1
