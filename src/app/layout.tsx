@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ControlStoreProvider } from "@/components/nomina/control-store";
-import { WorkspaceShell } from "@/components/nomina/workspace-shell";
+import { SITE } from "@/constants/site";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -11,8 +10,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NóminaCheck",
-  description: "Revisión y conciliación de documentación salarial.",
+  title: {
+    default: `Nuevo control de salarios | ${SITE.name}`,
+    template: `%s | ${SITE.name}`,
+  },
+  description: SITE.description,
 };
 
 export default function RootLayout({
@@ -23,9 +25,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
-        <ControlStoreProvider>
-          <WorkspaceShell>{children}</WorkspaceShell>
-        </ControlStoreProvider>
+        {children}
       </body>
     </html>
   );
