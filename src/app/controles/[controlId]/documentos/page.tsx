@@ -16,9 +16,11 @@ import {
   Users,
 } from "lucide-react";
 import { useControlStore } from "@/components/nomina/control-store";
-import { formatPeriod, LoadingState, PageShell } from "@/components/nomina/ui";
+import { formatPeriod, PageShell } from "@/components/nomina/ui";
 import { cn } from "@/lib/cn";
 import type { ControlDocument, DocumentKind } from "@/types/nomina";
+
+const ACCEPTED_EXTENSIONS = ".pdf,.png,.jpg,.jpeg,.xlsx,.csv";
 
 const sections: {
   kind: DocumentKind;
@@ -44,7 +46,7 @@ const sections: {
   {
     kind: "receipt",
     title: "Recibos de sueldo",
-    description: "Uno o varios recibos en PDF, imagen o archivo comprimido",
+    description: "Uno o varios recibos en PDF o imagen",
     icon: FileText,
     multiple: true,
   },
@@ -68,7 +70,7 @@ function FileStatus({ document }: { document: ControlDocument }) {
   return (
     <span className="text-primary inline-flex items-center gap-1 text-xs font-medium">
       <Check className="size-3.5" />
-      {document.status === "processed" ? "Procesado" : "Archivo cargado"}
+      {document.status === "processed" ? "Procesado" : "Archivo guardado"}
     </span>
   );
 }
@@ -80,17 +82,19 @@ function UploadSection({
   icon: Icon,
   multiple,
   documents,
+  busy,
   onAdd,
   onRemove,
   onRetry,
 }: (typeof sections)[number] & {
   documents: ControlDocument[];
+  busy: boolean;
   onAdd: (files: File[]) => void;
   onRemove: (documentId: string) => void;
   onRetry: (documentId: string) => void;
 }) {
   const receiveFiles = (list: FileList | null) => {
-    if (!list?.length) return;
+    if (!list?.length || busy) return;
     const files = Array.from(list);
     onAdd(multiple ? files : files.slice(0, 1));
   };
@@ -124,7 +128,8 @@ function UploadSection({
         id={`upload-${kind}`}
         type="file"
         multiple={multiple}
-        accept=".pdf,.png,.jpg,.jpeg,.xls,.xlsx,.csv,.zip"
+        accept={ACCEPTED_EXTENSIONS}
+        disabled={busy}
         className="sr-only"
         onChange={(event) => {
           receiveFiles(event.target.files);
@@ -138,7 +143,12 @@ function UploadSection({
           event.preventDefault();
           receiveFiles(event.dataTransfer.files);
         }}
-        className="border-primary/35 bg-primary/[0.03] text-muted-foreground hover:bg-primary/[0.07] mt-6 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-6 text-center text-sm"
+        className={cn(
+          "border-primary/35 bg-primary/[0.03] text-muted-foreground mt-6 flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-6 text-center text-sm",
+          busy
+            ? "cursor-not-allowed opacity-60"
+            : "hover:bg-primary/[0.07] cursor-pointer",
+        )}
       >
         <UploadCloud className="text-primary size-5" />
         <span>
@@ -168,16 +178,18 @@ function UploadSection({
               {document.status === "error" && (
                 <button
                   onClick={() => onRetry(document.id)}
+                  disabled={busy}
                   aria-label={`Reintentar ${document.name}`}
-                  className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg p-2"
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg p-2 disabled:opacity-50"
                 >
                   <RefreshCw className="size-3.5" />
                 </button>
               )}
               <button
                 onClick={() => onRemove(document.id)}
+                disabled={busy}
                 aria-label={`Eliminar ${document.name}`}
-                className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg p-2"
+                className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg p-2 disabled:opacity-50"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -192,27 +204,9 @@ function UploadSection({
 export default function DocumentsPage() {
   const { controlId } = useParams<{ controlId: string }>();
   const router = useRouter();
-  const {
-    controls,
-    hydrated,
-    addDocuments,
-    removeDocument,
-    retryDocument,
-    startProcessing,
-  } = useControlStore();
+  const { controls, busy, error, addDocuments, removeDocument, retryDocument } =
+    useControlStore();
   const control = controls.find((item) => item.id === controlId);
-
-  if (!hydrated) {
-    return (
-      <PageShell
-        eyebrow="Carga documental"
-        title="Preparando el control"
-        description=""
-      >
-        <LoadingState />
-      </PageShell>
-    );
-  }
 
   if (!control) {
     return (
@@ -225,29 +219,15 @@ export default function DocumentsPage() {
           href="/"
           className="text-primary mt-8 inline-flex text-sm font-medium hover:underline"
         >
-          Volver al dashboard
+          Volver a controles
         </Link>
       </PageShell>
     );
   }
 
-  const requiredKinds: DocumentKind[] = [
-    "ls",
-    "payroll",
-    "receipt",
-    "transfer",
-  ];
-  const canAnalyze = requiredKinds.every((kind) =>
-    control.documents.some(
-      (document) => document.kind === kind && document.status === "uploaded",
-    ),
-  );
-
-  const analyze = () => {
-    if (!canAnalyze) return;
-    startProcessing(control.id);
-    router.push(`/controles/${control.id}/procesando`);
-  };
+  // El control queda listo cuando las cuatro categorías tienen al menos un
+  // archivo guardado sin error.
+  const canAnalyze = control.status === "ready";
 
   return (
     <PageShell
@@ -261,17 +241,30 @@ export default function DocumentsPage() {
       >
         <ArrowLeft className="size-4" /> Volver a controles
       </Link>
+      {error && (
+        <p
+          role="alert"
+          className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {error}
+        </p>
+      )}
       <div className="mt-8 grid gap-5 md:grid-cols-2">
         {sections.map((section) => (
           <UploadSection
             key={section.kind}
             {...section}
+            busy={busy}
             documents={control.documents.filter(
               (document) => document.kind === section.kind,
             )}
-            onAdd={(files) => addDocuments(control.id, section.kind, files)}
-            onRemove={(documentId) => removeDocument(control.id, documentId)}
-            onRetry={(documentId) => retryDocument(control.id, documentId)}
+            onAdd={(files) =>
+              void addDocuments(control.id, section.kind, files)
+            }
+            onRemove={(documentId) =>
+              void removeDocument(control.id, documentId)
+            }
+            onRetry={(documentId) => void retryDocument(control.id, documentId)}
           />
         ))}
       </div>
@@ -281,15 +274,15 @@ export default function DocumentsPage() {
             <h2 className="font-semibold">Resumen de carga</h2>
             <p className="text-muted-foreground mt-1 text-sm">
               {canAnalyze
-                ? "Todos los documentos requeridos están listos."
+                ? "Todos los documentos requeridos están guardados."
                 : "Completá las cuatro secciones para iniciar el análisis."}
             </p>
           </div>
           <strong className="text-2xl">{control.documents.length}</strong>
         </div>
         <button
-          disabled={!canAnalyze}
-          onClick={analyze}
+          disabled={!canAnalyze || busy}
+          onClick={() => router.push(`/controles/${control.id}/procesando`)}
           className="bg-primary text-primary-foreground mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto"
         >
           Analizar documentación <ArrowUpRight className="size-4" />

@@ -59,7 +59,7 @@ export async function processDocuments(
 ): Promise<NominaCheckResult> {
   const prepared = await Promise.all(
     files.map(async (file) => ({
-      id: await documentId(file),
+      id: await analysisDocumentId(file),
       file,
       fileName: file.name,
       category: "CLASIFICACION_AUTOMATICA",
@@ -1362,7 +1362,12 @@ function safeId(value: string) {
   return value.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 24) || "unknown";
 }
 
-async function documentId(file: File) {
+/**
+ * Id que el motor le asigna a cada documento: deriva del contenido, así el
+ * mismo archivo recibe siempre el mismo id y el resultado puede volver al
+ * archivo guardado en el bucket.
+ */
+export async function analysisDocumentId(file: File) {
   const hash = createHash("sha256")
     .update(new Uint8Array(await file.arrayBuffer()))
     .digest("hex")

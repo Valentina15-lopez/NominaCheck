@@ -15,15 +15,21 @@ import {
   Pencil,
   Users,
 } from "lucide-react";
+import { documentPreviewUrlAction } from "@/app/controles/actions";
 import { useControlStore } from "@/components/nomina/control-store";
 import {
   DocumentPreview,
   formatMoney,
   formatPeriod,
-  LoadingState,
   PageShell,
   StatusBadge,
 } from "@/components/nomina/ui";
+
+type PreviewState = {
+  name: string;
+  url: string | null;
+  status: "loading" | "ready" | "unavailable";
+};
 
 function Comparison({
   label,
@@ -85,23 +91,31 @@ export default function WorkerDetailPage() {
   }>();
   const {
     controls,
-    hydrated,
+    busy,
+    error,
     confirmAssociation,
     reassignTransfer,
     markReviewed,
   } = useControlStore();
   const control = controls.find((item) => item.id === controlId);
   const worker = control?.workers.find((item) => item.id === workerId);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [correcting, setCorrecting] = useState<string | null>(null);
   const [targetWorker, setTargetWorker] = useState("");
 
-  if (!hydrated) {
-    return (
-      <PageShell eyebrow="Detalle" title="Cargando trabajador" description="">
-        <LoadingState />
-      </PageShell>
-    );
+  // El bucket es privado: la URL se firma en el servidor al abrir el modal.
+  async function openPreview(
+    name: string,
+    reference: { documentId?: string; analysisDocumentId?: string },
+  ) {
+    setPreview({ name, url: null, status: "loading" });
+    if (!reference.documentId && !reference.analysisDocumentId) {
+      setPreview({ name, url: null, status: "unavailable" });
+      return;
+    }
+    const result = await documentPreviewUrlAction(controlId, reference);
+    const url = result.ok ? result.data : null;
+    setPreview({ name, url, status: url ? "ready" : "unavailable" });
   }
 
   if (!control || !worker) {
@@ -115,7 +129,7 @@ export default function WorkerDetailPage() {
           href="/"
           className="text-primary mt-8 inline-flex text-sm font-medium hover:underline"
         >
-          Volver al dashboard
+          Volver a controles
         </Link>
       </PageShell>
     );
@@ -137,7 +151,7 @@ export default function WorkerDetailPage() {
       <PageShell
         eyebrow={`${control.company} · ${formatPeriod(control.period)}`}
         title={worker.name}
-        description={`CI ${worker.id} · ${worker.role}`}
+        description={`CI ${worker.documentNumber} · ${worker.role}`}
       >
         <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
           <Link
@@ -148,6 +162,15 @@ export default function WorkerDetailPage() {
           </Link>
           <StatusBadge status={worker.status} />
         </div>
+
+        {error && (
+          <p
+            role="alert"
+            className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {error}
+          </p>
+        )}
 
         <section className="mt-8">
           <h2 className="font-semibold">Comparación de importes</h2>
@@ -186,8 +209,8 @@ export default function WorkerDetailPage() {
                   {worker.observation}
                 </p>
                 <button
-                  disabled={worker.reviewed}
-                  onClick={() => markReviewed(control.id, worker.id)}
+                  disabled={worker.reviewed || busy}
+                  onClick={() => void markReviewed(worker.id)}
                   className="mt-4 inline-flex h-9 items-center gap-2 rounded-xl border border-amber-300 px-3 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
                 >
                   <Check className="size-3.5" />
@@ -218,12 +241,18 @@ export default function WorkerDetailPage() {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setPreview(lsDocument?.name ?? "LS / Odoo")}
-                className="text-primary mt-5 inline-flex items-center gap-2 text-xs font-semibold hover:underline"
-              >
-                <Eye className="size-3.5" /> Previsualizar {lsDocument?.name}
-              </button>
+              {lsDocument && (
+                <button
+                  onClick={() =>
+                    void openPreview(lsDocument.name, {
+                      documentId: lsDocument.id,
+                    })
+                  }
+                  className="text-primary mt-5 inline-flex items-center gap-2 text-xs font-semibold hover:underline"
+                >
+                  <Eye className="size-3.5" /> Previsualizar {lsDocument.name}
+                </button>
+              )}
             </article>
             <article className="border-border bg-card rounded-2xl border p-5">
               <div className="flex items-start gap-3">
@@ -237,13 +266,19 @@ export default function WorkerDetailPage() {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setPreview(payrollDocument?.name ?? "Nómina")}
-                className="text-primary mt-5 inline-flex items-center gap-2 text-xs font-semibold hover:underline"
-              >
-                <Eye className="size-3.5" /> Previsualizar{" "}
-                {payrollDocument?.name}
-              </button>
+              {payrollDocument && (
+                <button
+                  onClick={() =>
+                    void openPreview(payrollDocument.name, {
+                      documentId: payrollDocument.id,
+                    })
+                  }
+                  className="text-primary mt-5 inline-flex items-center gap-2 text-xs font-semibold hover:underline"
+                >
+                  <Eye className="size-3.5" /> Previsualizar{" "}
+                  {payrollDocument.name}
+                </button>
+              )}
             </article>
             <article className="border-border bg-card rounded-2xl border p-5">
               <div className="flex items-start gap-3">
@@ -259,10 +294,19 @@ export default function WorkerDetailPage() {
                 </div>
               </div>
               <div className="mt-4 grid gap-2">
+                {worker.receipts.length === 0 && (
+                  <p className="bg-muted text-muted-foreground rounded-xl p-3 text-xs">
+                    No se encontraron recibos asociados.
+                  </p>
+                )}
                 {worker.receipts.map((receipt) => (
                   <button
                     key={receipt.id}
-                    onClick={() => setPreview(receipt.name)}
+                    onClick={() =>
+                      void openPreview(receipt.name, {
+                        analysisDocumentId: receipt.sourceDocumentId,
+                      })
+                    }
                     className="border-border hover:bg-muted flex items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left"
                   >
                     <span className="min-w-0 truncate text-xs font-medium">
@@ -301,7 +345,11 @@ export default function WorkerDetailPage() {
                     className="border-border rounded-xl border p-3"
                   >
                     <button
-                      onClick={() => setPreview(transfer.name)}
+                      onClick={() =>
+                        void openPreview(transfer.name, {
+                          analysisDocumentId: transfer.sourceDocumentId,
+                        })
+                      }
                       className="flex w-full items-center justify-between gap-3 text-left"
                     >
                       <span className="min-w-0 truncate text-xs font-medium">
@@ -311,9 +359,13 @@ export default function WorkerDetailPage() {
                         {formatMoney(transfer.amount)}
                       </span>
                     </button>
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      {transfer.reference} · {transfer.date}
-                    </p>
+                    {(transfer.reference || transfer.date) && (
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {[transfer.reference, transfer.date]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
                     {transfer.sharedWith?.length ? (
                       <p className="mt-2 flex items-center gap-1 text-xs text-amber-700">
                         <Link2 className="size-3.5" /> Pago compartido con{" "}
@@ -328,14 +380,11 @@ export default function WorkerDetailPage() {
                     <div className="mt-3 flex flex-wrap gap-2">
                       {transfer.associationStatus === "suggested" && (
                         <button
+                          disabled={busy}
                           onClick={() =>
-                            confirmAssociation(
-                              control.id,
-                              worker.id,
-                              transfer.id,
-                            )
+                            void confirmAssociation(worker.id, transfer.id)
                           }
-                          className="bg-primary text-primary-foreground inline-flex h-8 items-center gap-1 rounded-lg px-3 text-xs font-semibold"
+                          className="bg-primary text-primary-foreground inline-flex h-8 items-center gap-1 rounded-lg px-3 text-xs font-semibold disabled:opacity-50"
                         >
                           <Check className="size-3.5" /> Confirmar asociación
                         </button>
@@ -370,10 +419,9 @@ export default function WorkerDetailPage() {
                             ))}
                         </select>
                         <button
-                          disabled={!targetWorker}
-                          onClick={() => {
-                            reassignTransfer(
-                              control.id,
+                          disabled={!targetWorker || busy}
+                          onClick={async () => {
+                            await reassignTransfer(
                               worker.id,
                               transfer.id,
                               targetWorker,
@@ -400,7 +448,12 @@ export default function WorkerDetailPage() {
         </section>
       </PageShell>
       {preview && (
-        <DocumentPreview name={preview} onClose={() => setPreview(null)} />
+        <DocumentPreview
+          name={preview.name}
+          url={preview.url}
+          status={preview.status}
+          onClose={() => setPreview(null)}
+        />
       )}
     </>
   );

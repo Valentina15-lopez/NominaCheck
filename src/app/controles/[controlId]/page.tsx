@@ -10,60 +10,31 @@ import {
   Check,
   Download,
   FileQuestion,
+  FileText,
   Search,
   Users,
 } from "lucide-react";
 import { useControlStore } from "@/components/nomina/control-store";
 import {
   EmptyState,
+  formatMoney,
   formatPeriod,
-  LoadingState,
   Metric,
   PageShell,
   StatusBadge,
 } from "@/components/nomina/ui";
-import type { SalaryControl, WorkerStatus } from "@/types/nomina";
+import type { WorkerStatus } from "@/types/nomina";
 
-function escapePdfText(value: string) {
-  return value.replace(/[^\x20-\x7E]/g, "").replace(/([\\()])/g, "\\$1");
-}
-
-function buildMockPdf(control: SalaryControl) {
-  const content = `BT /F1 18 Tf 50 740 Td (${escapePdfText("NominaCheck - Informe simulado")}) Tj /F1 11 Tf 0 -30 Td (${escapePdfText(control.company)}) Tj 0 -18 Td (${escapePdfText(formatPeriod(control.period))}) Tj 0 -18 Td (${control.workers.length} trabajadores procesados) Tj ET`;
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-  ];
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  objects.forEach((object, index) => {
-    offsets.push(new TextEncoder().encode(pdf).length);
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-  const xref = new TextEncoder().encode(pdf).length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${offset.toString().padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  return pdf;
-}
-
-function download(content: BlobPart, type: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+const STATUS_LABELS: Record<WorkerStatus, string> = {
+  correct: "Correcto",
+  warning: "Advertencia",
+  incomplete: "Documentación incompleta",
+  "manual-review": "Revisión manual",
+};
 
 export default function ResultsPage() {
   const { controlId } = useParams<{ controlId: string }>();
-  const { controls, hydrated } = useControlStore();
+  const { controls } = useControlStore();
   const control = controls.find((item) => item.id === controlId);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<WorkerStatus | "all">("all");
@@ -77,21 +48,9 @@ export default function ResultsPage() {
         (status === "all" || worker.status === status) &&
         (!normalized ||
           worker.name.toLocaleLowerCase("es").includes(normalized) ||
-          worker.id.includes(normalized)),
+          worker.documentNumber.includes(normalized)),
     );
   }, [control, query, status]);
-
-  if (!hydrated) {
-    return (
-      <PageShell
-        eyebrow="Resultados"
-        title="Cargando el control"
-        description=""
-      >
-        <LoadingState />
-      </PageShell>
-    );
-  }
 
   if (!control) {
     return (
@@ -104,7 +63,7 @@ export default function ResultsPage() {
           href="/"
           className="text-primary mt-8 inline-flex text-sm font-medium hover:underline"
         >
-          Volver al dashboard
+          Volver a controles
         </Link>
       </PageShell>
     );
@@ -121,6 +80,14 @@ export default function ResultsPage() {
         title="El control todavía no tiene resultados"
         description="Completá la carga y el procesamiento antes de consultar el resumen."
       >
+        {control.processingError && (
+          <p
+            role="alert"
+            className="mt-8 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {control.processingError}
+          </p>
+        )}
         <Link
           href={href}
           className="bg-primary text-primary-foreground mt-8 inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold"
@@ -134,36 +101,43 @@ export default function ResultsPage() {
   const count = (workerStatus: WorkerStatus) =>
     control.workers.filter((worker) => worker.status === workerStatus).length;
 
-  const downloadPdf = () => {
-    download(
-      buildMockPdf(control),
-      "application/pdf",
-      `informe-${control.period}.pdf`,
-    );
-    setNotice("Informe PDF generado en modo demostración.");
-  };
-
-  const downloadExcel = () => {
+  const downloadCsv = () => {
     const rows = [
       [
         "Trabajador",
         "CI",
+        "Cargo",
         "Estado",
         "Nominal Odoo",
         "Nominal nómina",
-        "Líquido",
+        "Nominal recibo",
+        "Líquido recibo",
+        "Total transferido",
       ],
       ...control.workers.map((worker) => [
         worker.name,
-        worker.id,
-        worker.status,
+        worker.documentNumber,
+        worker.role,
+        STATUS_LABELS[worker.status],
         worker.odooNominal,
         worker.payrollNominal ?? "",
+        worker.receiptNominal ?? "",
         worker.receiptLiquid ?? "",
+        worker.transfers.reduce(
+          (total, transfer) => total + transfer.amount,
+          0,
+        ),
       ]),
     ];
     const csv = `\uFEFF${rows.map((row) => row.join(";")).join("\n")}`;
-    download(csv, "text/csv;charset=utf-8", `informe-${control.period}.csv`);
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `nominacheck-${control.period}.csv`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setNotice("Archivo compatible con Excel generado.");
   };
 
@@ -178,17 +152,17 @@ export default function ResultsPage() {
           href="/"
           className="text-muted-foreground hover:text-foreground inline-flex items-center gap-2 text-sm font-medium"
         >
-          <ArrowLeft className="size-4" /> Volver al dashboard
+          <ArrowLeft className="size-4" /> Volver a controles
         </Link>
         <div className="flex flex-wrap gap-3">
-          <button
-            onClick={downloadPdf}
+          <Link
+            href={`/controles/${control.id}/informe`}
             className="border-border bg-card hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-medium"
           >
-            <Download className="size-4" /> Descargar informe PDF
-          </button>
+            <FileText className="size-4" /> Ver informe completo
+          </Link>
           <button
-            onClick={downloadExcel}
+            onClick={downloadCsv}
             className="border-border bg-card hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-medium"
           >
             <Download className="size-4" /> Descargar Excel
@@ -285,18 +259,14 @@ export default function ResultsPage() {
                     <td className="px-5 py-4">
                       <p className="font-medium">{worker.name}</p>
                       <p className="text-muted-foreground mt-1 text-xs">
-                        CI {worker.id}
+                        CI {worker.documentNumber}
                       </p>
                     </td>
                     <td className="text-muted-foreground px-5 py-4">
                       {worker.role}
                     </td>
                     <td className="px-5 py-4 font-medium">
-                      {new Intl.NumberFormat("es-UY", {
-                        style: "currency",
-                        currency: "UYU",
-                        maximumFractionDigits: 0,
-                      }).format(worker.odooNominal)}
+                      {formatMoney(worker.odooNominal)}
                     </td>
                     <td className="px-5 py-4">
                       <StatusBadge status={worker.status} />

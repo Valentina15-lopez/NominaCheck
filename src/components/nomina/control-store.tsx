@@ -4,330 +4,175 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
 } from "react";
 import {
-  cloneInitialControls,
-  MOCK_WORKERS,
-  PROCESSING_STEPS,
-} from "@/lib/nomina/mock-data";
+  type ActionResult,
+  addDocumentsAction,
+  confirmAssociationAction,
+  createControlAction,
+  loadControlsAction,
+  markReviewedAction,
+  reassignTransferAction,
+  removeDocumentAction,
+  retryDocumentAction,
+} from "@/app/controles/actions";
 import type {
-  ControlDocument,
   DocumentKind,
   NewControlInput,
-  ProcessingStep,
   SalaryControl,
 } from "@/types/nomina";
 
-const STORAGE_KEY = "nomina-check-controls-v2";
-const acceptedFile = /\.(pdf|png|jpe?g|xlsx?|csv|zip)$/i;
-const requiredKinds: DocumentKind[] = ["ls", "payroll", "receipt", "transfer"];
-
+/**
+ * Único punto de lectura y escritura del espacio de trabajo. La primera carga
+ * llega del servidor; cada mutación va a la base por una server action y
+ * después se releen los controles, así la UI nunca muestra algo que no se
+ * guardó.
+ */
 type StoreValue = {
   controls: SalaryControl[];
-  hydrated: boolean;
-  createControl: (input: NewControlInput) => string;
-  addDocuments: (controlId: string, kind: DocumentKind, files: File[]) => void;
-  removeDocument: (controlId: string, documentId: string) => void;
-  retryDocument: (controlId: string, documentId: string) => void;
-  startProcessing: (controlId: string) => void;
-  setProcessingSteps: (controlId: string, steps: ProcessingStep[]) => void;
-  completeProcessing: (controlId: string) => void;
-  confirmAssociation: (
+  busy: boolean;
+  error: string | null;
+  dismissError: () => void;
+  refresh: () => Promise<void>;
+  createControl: (input: NewControlInput) => Promise<string | null>;
+  addDocuments: (
     controlId: string,
-    workerId: string,
-    transferId: string,
-  ) => void;
+    kind: DocumentKind,
+    files: File[],
+  ) => Promise<void>;
+  removeDocument: (controlId: string, documentId: string) => Promise<void>;
+  retryDocument: (controlId: string, documentId: string) => Promise<void>;
+  confirmAssociation: (workerId: string, paymentId: string) => Promise<void>;
   reassignTransfer: (
-    controlId: string,
     workerId: string,
-    transferId: string,
+    paymentId: string,
     targetWorkerId: string,
-  ) => void;
-  markReviewed: (controlId: string, workerId: string) => void;
+  ) => Promise<void>;
+  markReviewed: (workerId: string) => Promise<void>;
 };
 
 const ControlStoreContext = createContext<StoreValue | null>(null);
 
-function updateControl(
-  controls: SalaryControl[],
-  controlId: string,
-  updater: (control: SalaryControl) => SalaryControl,
-) {
-  return controls.map((control) =>
-    control.id === controlId ? updater(control) : control,
-  );
-}
-
-function documentsStatus(documents: ControlDocument[]) {
-  return requiredKinds.every((kind) =>
-    documents.some(
-      (document) =>
-        document.kind === kind &&
-        (document.status === "uploaded" || document.status === "processed"),
-    ),
-  )
-    ? ("ready" as const)
-    : ("draft" as const);
-}
-
 export function ControlStoreProvider({
+  initialControls,
   children,
 }: {
+  initialControls: SalaryControl[];
   children: React.ReactNode;
 }) {
-  const [controls, setControls] = useState<SalaryControl[]>([]);
-  const [hydrated, setHydrated] = useState(false);
+  const [controls, setControls] = useState(initialControls);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
+  const refresh = useCallback(async () => {
+    const result = await loadControlsAction();
+    if (result.ok) {
+      setControls(result.data);
+      setError(null);
+    } else {
+      setError(result.error);
+    }
+  }, []);
+
+  /** Ejecuta una mutación y relee los controles solo si salió bien. */
+  const mutate = useCallback(
+    async <T,>(action: () => Promise<ActionResult<T>>): Promise<T | null> => {
+      setBusy(true);
       try {
-        const saved = window.localStorage.getItem(STORAGE_KEY);
-        setControls(
-          saved
-            ? (JSON.parse(saved) as SalaryControl[])
-            : cloneInitialControls(),
-        );
-      } catch {
-        setControls(cloneInitialControls());
+        const result = await action();
+        if (!result.ok) {
+          setError(result.error);
+          return null;
+        }
+        setError(null);
+        await refresh();
+        return result.data;
       } finally {
-        setHydrated(true);
+        setBusy(false);
       }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+    },
+    [refresh],
+  );
 
-  useEffect(() => {
-    if (hydrated)
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(controls));
-  }, [controls, hydrated]);
-
-  const createControl = useCallback((input: NewControlInput) => {
-    const id = `control-${Date.now().toString(36)}`;
-    const control: SalaryControl = {
-      id,
-      company: input.company,
-      period: input.period,
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      documents: [],
-      workers: [],
-      processingSteps: structuredClone(PROCESSING_STEPS),
-    };
-    setControls((current) => [control, ...current]);
-    return id;
-  }, []);
+  const createControl = useCallback(
+    (input: NewControlInput) => mutate(() => createControlAction(input)),
+    [mutate],
+  );
 
   const addDocuments = useCallback(
-    (controlId: string, kind: DocumentKind, files: File[]) => {
-      const incoming: ControlDocument[] = files.map((file, index) => {
-        const invalid = file.size === 0 || !acceptedFile.test(file.name);
-        return {
-          id: `${kind}-${Date.now().toString(36)}-${index}`,
-          name: file.name,
-          kind,
-          size: file.size,
-          status: invalid ? "error" : "uploaded",
-          error: invalid ? "Formato no admitido o archivo vacío" : undefined,
-        };
-      });
-      setControls((current) =>
-        updateControl(current, controlId, (control) => {
-          const keep =
-            kind === "ls" || kind === "payroll"
-              ? control.documents.filter((document) => document.kind !== kind)
-              : control.documents;
-          const documents = [...keep, ...incoming];
-          return { ...control, documents, status: documentsStatus(documents) };
-        }),
-      );
+    async (controlId: string, kind: DocumentKind, files: File[]) => {
+      const formData = new FormData();
+      formData.set("controlId", controlId);
+      formData.set("kind", kind);
+      for (const file of files) formData.append("files", file);
+      await mutate(() => addDocumentsAction(formData));
     },
-    [],
+    [mutate],
   );
 
   const removeDocument = useCallback(
-    (controlId: string, documentId: string) => {
-      setControls((current) =>
-        updateControl(current, controlId, (control) => {
-          const documents = control.documents.filter(
-            (document) => document.id !== documentId,
-          );
-          return { ...control, status: documentsStatus(documents), documents };
-        }),
-      );
+    async (controlId: string, documentId: string) => {
+      await mutate(() => removeDocumentAction(controlId, documentId));
     },
-    [],
+    [mutate],
   );
 
-  const retryDocument = useCallback((controlId: string, documentId: string) => {
-    setControls((current) =>
-      updateControl(current, controlId, (control) => {
-        const documents: ControlDocument[] = control.documents.map(
-          (document) =>
-            document.id === documentId
-              ? { ...document, status: "uploaded", error: undefined }
-              : document,
-        );
-        return { ...control, documents, status: documentsStatus(documents) };
-      }),
-    );
-  }, []);
-
-  const startProcessing = useCallback((controlId: string) => {
-    setControls((current) =>
-      updateControl(current, controlId, (control) => ({
-        ...control,
-        status: "processing",
-        processingSteps: structuredClone(PROCESSING_STEPS),
-      })),
-    );
-  }, []);
-
-  const setProcessingSteps = useCallback(
-    (controlId: string, steps: ProcessingStep[]) => {
-      setControls((current) =>
-        updateControl(current, controlId, (control) => ({
-          ...control,
-          processingSteps: steps,
-        })),
-      );
+  const retryDocument = useCallback(
+    async (controlId: string, documentId: string) => {
+      await mutate(() => retryDocumentAction(controlId, documentId));
     },
-    [],
+    [mutate],
   );
-
-  const completeProcessing = useCallback((controlId: string) => {
-    setControls((current) =>
-      updateControl(current, controlId, (control) => ({
-        ...control,
-        status: "completed",
-        documents: control.documents.map((document) => ({
-          ...document,
-          status: document.status === "error" ? "error" : "processed",
-        })),
-        processingSteps: control.processingSteps.map((step) => ({
-          ...step,
-          status: "completed",
-        })),
-        workers: structuredClone(MOCK_WORKERS),
-      })),
-    );
-  }, []);
 
   const confirmAssociation = useCallback(
-    (controlId: string, workerId: string, transferId: string) => {
-      setControls((current) =>
-        updateControl(current, controlId, (control) => ({
-          ...control,
-          workers: control.workers.map((worker) =>
-            worker.id === workerId
-              ? {
-                  ...worker,
-                  status:
-                    worker.status === "manual-review"
-                      ? "correct"
-                      : worker.status,
-                  observation:
-                    worker.status === "manual-review"
-                      ? undefined
-                      : worker.observation,
-                  transfers: worker.transfers.map((transfer) =>
-                    transfer.id === transferId
-                      ? { ...transfer, associationStatus: "confirmed" }
-                      : transfer,
-                  ),
-                }
-              : worker,
-          ),
-        })),
-      );
+    async (workerId: string, paymentId: string) => {
+      await mutate(() => confirmAssociationAction(workerId, paymentId));
     },
-    [],
+    [mutate],
   );
 
   const reassignTransfer = useCallback(
-    (
-      controlId: string,
-      workerId: string,
-      transferId: string,
-      targetWorkerId: string,
-    ) => {
-      setControls((current) =>
-        updateControl(current, controlId, (control) => {
-          const source = control.workers.find(
-            (worker) => worker.id === workerId,
-          );
-          const transfer = source?.transfers.find(
-            (item) => item.id === transferId,
-          );
-          if (!transfer || workerId === targetWorkerId) return control;
-          return {
-            ...control,
-            workers: control.workers.map((worker) => {
-              if (worker.id === workerId) {
-                return {
-                  ...worker,
-                  status: "incomplete",
-                  transfers: worker.transfers.filter(
-                    (item) => item.id !== transferId,
-                  ),
-                };
-              }
-              if (worker.id === targetWorkerId) {
-                return {
-                  ...worker,
-                  transfers: [
-                    ...worker.transfers,
-                    { ...transfer, associationStatus: "confirmed" },
-                  ],
-                };
-              }
-              return worker;
-            }),
-          };
-        }),
+    async (workerId: string, paymentId: string, targetWorkerId: string) => {
+      await mutate(() =>
+        reassignTransferAction(workerId, paymentId, targetWorkerId),
       );
     },
-    [],
+    [mutate],
   );
 
-  const markReviewed = useCallback((controlId: string, workerId: string) => {
-    setControls((current) =>
-      updateControl(current, controlId, (control) => ({
-        ...control,
-        workers: control.workers.map((worker) =>
-          worker.id === workerId ? { ...worker, reviewed: true } : worker,
-        ),
-      })),
-    );
-  }, []);
+  const markReviewed = useCallback(
+    async (workerId: string) => {
+      await mutate(() => markReviewedAction(workerId));
+    },
+    [mutate],
+  );
 
   const value = useMemo<StoreValue>(
     () => ({
       controls,
-      hydrated,
+      busy,
+      error,
+      dismissError: () => setError(null),
+      refresh,
       createControl,
       addDocuments,
       removeDocument,
       retryDocument,
-      startProcessing,
-      setProcessingSteps,
-      completeProcessing,
       confirmAssociation,
       reassignTransfer,
       markReviewed,
     }),
     [
       controls,
-      hydrated,
+      busy,
+      error,
+      refresh,
       createControl,
       addDocuments,
       removeDocument,
       retryDocument,
-      startProcessing,
-      setProcessingSteps,
-      completeProcessing,
       confirmAssociation,
       reassignTransfer,
       markReviewed,

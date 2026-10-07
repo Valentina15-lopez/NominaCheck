@@ -1,33 +1,56 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { loadCompaniesAction } from "@/app/controles/actions";
 import { useControlStore } from "@/components/nomina/control-store";
 import { PageShell } from "@/components/nomina/ui";
-import { COMPANIES } from "@/lib/nomina/mock-data";
+
+const fieldClassName =
+  "border-border bg-background focus:border-primary h-11 rounded-xl border px-3 font-normal outline-none";
 
 export default function NewControlPage() {
   const router = useRouter();
-  const { createControl, hydrated } = useControlStore();
+  const { createControl, busy, error } = useControlStore();
+  const [companies, setCompanies] = useState<string[]>([]);
   const [companyOption, setCompanyOption] = useState("");
   const [customCompany, setCustomCompany] = useState("");
-  const [period, setPeriod] = useState("2026-09");
-  const [error, setError] = useState("");
+  const [period, setPeriod] = useState("");
+  const [tolerance, setTolerance] = useState("");
+  const [observations, setObservations] = useState("");
+  const [formError, setFormError] = useState("");
+
+  // Las empresas se ofrecen a partir de los controles ya creados.
+  useEffect(() => {
+    void loadCompaniesAction().then((result) => {
+      if (result.ok) setCompanies(result.data);
+    });
+  }, []);
 
   const company =
     companyOption === "other" ? customCompany.trim() : companyOption;
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!company || !period) {
-      setError("Seleccioná o ingresá una empresa y un período para continuar.");
+      setFormError(
+        "Seleccioná o ingresá una empresa y un período para continuar.",
+      );
       return;
     }
-    const controlId = createControl({ company, period });
-    router.push(`/controles/${controlId}/documentos`);
+    setFormError("");
+    const controlId = await createControl({
+      company,
+      period,
+      roundingTolerance: tolerance === "" ? null : Number(tolerance),
+      observations,
+    });
+    if (controlId) router.push(`/controles/${controlId}/documentos`);
   };
+
+  const message = formError || error;
 
   return (
     <PageShell
@@ -64,12 +87,12 @@ export default function NewControlPage() {
               value={companyOption}
               onChange={(event) => {
                 setCompanyOption(event.target.value);
-                setError("");
+                setFormError("");
               }}
-              className="border-border bg-background focus:border-primary h-11 rounded-xl border px-3 font-normal outline-none"
+              className={fieldClassName}
             >
               <option value="">Seleccionar empresa</option>
-              {COMPANIES.map((item) => (
+              {companies.map((item) => (
                 <option key={item} value={item}>
                   {item}
                 </option>
@@ -85,9 +108,9 @@ export default function NewControlPage() {
                 value={customCompany}
                 onChange={(event) => {
                   setCustomCompany(event.target.value);
-                  setError("");
+                  setFormError("");
                 }}
-                className="border-border bg-background focus:border-primary h-11 rounded-xl border px-3 font-normal outline-none"
+                className={fieldClassName}
                 placeholder="Ej. Empresa del Sur SAS"
               />
             </label>
@@ -99,27 +122,52 @@ export default function NewControlPage() {
               value={period}
               onChange={(event) => {
                 setPeriod(event.target.value);
-                setError("");
+                setFormError("");
               }}
-              className="border-border bg-background focus:border-primary h-11 rounded-xl border px-3 font-normal outline-none"
+              className={fieldClassName}
+            />
+          </label>
+          <label className="grid gap-2 text-sm font-medium">
+            Tolerancia de redondeo (UYU)
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={tolerance}
+              placeholder="Sin tolerancia"
+              onChange={(event) => setTolerance(event.target.value)}
+              className={fieldClassName}
+            />
+            <span className="text-muted-foreground text-xs font-normal">
+              Sin tolerancia, cualquier diferencia de centavos queda marcada
+              para revisión manual.
+            </span>
+          </label>
+          <label className="grid gap-2 text-sm font-medium">
+            Observaciones
+            <textarea
+              value={observations}
+              onChange={(event) => setObservations(event.target.value)}
+              placeholder="Agregá una nota opcional…"
+              className="border-border bg-background focus:border-primary min-h-24 rounded-xl border px-3 py-3 font-normal outline-none"
             />
           </label>
         </div>
-        {error && (
+        {message && (
           <p
             role="alert"
             className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700"
           >
-            {error}
+            {message}
           </p>
         )}
         <div className="mt-6 flex justify-end">
           <button
             type="submit"
-            disabled={!hydrated}
-            className="bg-primary text-primary-foreground inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold hover:opacity-90"
+            disabled={busy}
+            className="bg-primary text-primary-foreground inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold hover:opacity-90 disabled:opacity-50"
           >
-            Continuar <ArrowRight className="size-4" />
+            {busy ? "Creando…" : "Continuar"} <ArrowRight className="size-4" />
           </button>
         </div>
       </form>
