@@ -108,6 +108,128 @@ ejecutá `supabase/migrations/0001_nominacheck.sql`. Crea las tablas de
 controles, documentos, trabajadores, pagos y preferencias, sus políticas de
 RLS y el bucket privado `control-documents` donde se guardan los archivos.
 
+Para probar el login sin pasar por `/registro`, ejecutá esto en el mismo SQL
+Editor. Crea (o actualiza) un usuario ya confirmado:
+
+```sql
+-- NóminaCheck · usuario de prueba
+-- Es idempotente: si el correo ya existe, confirma el mail y resetea la clave.
+create extension if not exists pgcrypto;
+
+do $$
+declare
+  v_email    text := 'prueba@nominacheck.test';
+  v_password text := 'Prueba123!';
+  v_user_id  uuid;
+begin
+  select id into v_user_id
+  from auth.users
+  where email = v_email;
+
+  if v_user_id is null then
+    v_user_id := gen_random_uuid();
+
+    insert into auth.users (
+      instance_id,
+      id,
+      aud,
+      role,
+      email,
+      encrypted_password,
+      email_confirmed_at,
+      raw_app_meta_data,
+      raw_user_meta_data,
+      created_at,
+      updated_at,
+      confirmation_token,
+      email_change,
+      email_change_token_new,
+      recovery_token
+    )
+    values (
+      '00000000-0000-0000-0000-000000000000',
+      v_user_id,
+      'authenticated',
+      'authenticated',
+      v_email,
+      crypt(v_password, gen_salt('bf')),
+      now(),
+      '{"provider":"email","providers":["email"]}'::jsonb,
+      '{"full_name":"Usuario de prueba"}'::jsonb,
+      now(),
+      now(),
+      '',
+      '',
+      '',
+      ''
+    );
+
+    insert into auth.identities (
+      id,
+      user_id,
+      identity_data,
+      provider,
+      provider_id,
+      last_sign_in_at,
+      created_at,
+      updated_at
+    )
+    values (
+      gen_random_uuid(),
+      v_user_id,
+      jsonb_build_object('sub', v_user_id::text, 'email', v_email),
+      'email',
+      v_user_id::text,
+      now(),
+      now(),
+      now()
+    );
+  else
+    update auth.users
+    set
+      encrypted_password = crypt(v_password, gen_salt('bf')),
+      email_confirmed_at = coalesce(email_confirmed_at, now()),
+      raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb)
+        || '{"full_name":"Usuario de prueba"}'::jsonb,
+      updated_at = now()
+    where id = v_user_id;
+
+    insert into auth.identities (
+      id,
+      user_id,
+      identity_data,
+      provider,
+      provider_id,
+      last_sign_in_at,
+      created_at,
+      updated_at
+    )
+    values (
+      gen_random_uuid(),
+      v_user_id,
+      jsonb_build_object('sub', v_user_id::text, 'email', v_email),
+      'email',
+      v_user_id::text,
+      now(),
+      now(),
+      now()
+    )
+    on conflict (provider_id, provider) do nothing;
+  end if;
+end $$;
+
+select id, email, email_confirmed_at
+from auth.users
+where email = 'prueba@nominacheck.test';
+```
+
+Credenciales:
+
+| Campo      | Valor                    |
+| ---------- | ------------------------ |
+| Correo     | `prueba@nominacheck.test` |
+| Contraseña | `Prueba123!`             |
+
 Después:
 
 ```bash
