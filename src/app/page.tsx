@@ -10,8 +10,8 @@ export default async function HomePage() {
         <div className="border-border bg-card max-w-md rounded-2xl border p-8 text-center">
           <h1 className="text-xl font-semibold">Falta configurar Supabase</h1>
           <p className="text-muted-foreground mt-2 text-sm leading-6">
-            Definí NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY en
-            tu entorno para poder iniciar sesión y guardar los controles.
+            Definí las credenciales de Supabase en tu entorno para poder
+            iniciar sesión y guardar los controles.
           </p>
         </div>
       </main>
