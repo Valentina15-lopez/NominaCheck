@@ -27,7 +27,7 @@ export default async function ReportPage({
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-5 py-10 sm:px-10 lg:px-12 lg:py-14">
+    <div className="mx-auto max-w-[1400px] px-5 py-10 sm:px-10 lg:px-12 lg:py-14">
       <ReportView
         result={report.result}
         control={report.control}

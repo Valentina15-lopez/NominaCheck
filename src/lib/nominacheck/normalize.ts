@@ -165,6 +165,20 @@ export function normalizeAccount(value: string | null) {
   return normalized || null;
 }
 
+/**
+ * Los comprobantes de sueldos a veces anteponen un código de convenio a la
+ * cuenta del recibo (p. ej. 2201000003488706300 vs 3488706300).
+ */
+export function accountsMatch(left: string | null, right: string | null) {
+  const a = normalizeAccount(left);
+  const b = normalizeAccount(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  return shorter.length >= 8 && longer.endsWith(shorter);
+}
+
 export function moneyField(documentId: string, raw: RawMoney): MoneyField {
   const parsed = parseMoney(raw.original);
   return {
@@ -179,10 +193,17 @@ export function nameSimilarity(left: string | null, right: string | null) {
   if (left === right) return 1;
   const a = left.split(" ");
   const b = right.split(" ");
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  const covered = shorter.filter((part) =>
+    longer.some((candidate) => levenshtein(part, candidate) <= 1),
+  ).length;
+  const coverage = covered / shorter.length;
   const shared = a.filter((part) =>
     b.some((candidate) => levenshtein(part, candidate) <= 1),
   ).length;
-  return shared / Math.max(a.length, b.length);
+  const jaccard = shared / Math.max(a.length, b.length);
+  return Math.max(jaccard, coverage);
 }
 
 function levenshtein(left: string, right: string) {

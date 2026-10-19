@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { findConceptRules } from "@/config/concept-codes";
 import { extractDocument } from "@/lib/nominacheck/extract";
 import {
+  accountsMatch,
   fieldFromRaw,
   moneyField,
   nameSimilarity,
@@ -373,7 +374,7 @@ function buildWorkers(
     const first = entries[0]!;
     const workerId = `worker-${workerIndex + 1}-${safeId(key)}`;
     const records = entries.map((odoo, recordIndex) => {
-      const payrollMatch = chooseCandidate(
+      const payrollMatch = choosePayroll(
         odoo,
         payrollEntries.filter(
           (entry) => !usedPayroll.has(entry.payroll_entry_id),
@@ -652,17 +653,103 @@ function reconcileRecord(
   record.proposed_status = worstStatus(statuses);
 }
 
-function chooseCandidate<T extends PayrollEntry | ReceiptRecord>(
+function choosePayroll(odoo: OdooRecord, candidates: PayrollEntry[]) {
+  const ranked = rankCandidates(odoo, candidates);
+  const best = ranked[0];
+  if (!best || best.score < 0.6) {
+    return unmatchedChoice(ranked);
+  }
+
+  const samePerson = ranked.filter((item) =>
+    sameIdentity(best.candidate, item.candidate),
+  );
+  const rival = ranked.find(
+    (item) =>
+      !sameIdentity(best.candidate, item.candidate) &&
+      best.score - item.score < 0.12,
+  );
+  if (rival) return unmatchedChoice(ranked);
+
+  const selected = pickPayrollRow(
+    odoo,
+    samePerson.map((item) => item.candidate),
+  );
+  const chosen =
+    ranked.find((item) => item.candidate === selected) ?? best;
+  return {
+    selected,
+    score: chosen.score,
+    methods: chosen.methods,
+    alternatives: ranked.slice(0, 3),
+  };
+}
+
+function pickPayrollRow(odoo: OdooRecord, rows: PayrollEntry[]) {
+  if (rows.length === 1) return rows[0]!;
+  const lsCode = odoo.concept_code.normalized;
+  if (lsCode) {
+    const byCode = rows.find((row) => row.concept_code.normalized === lsCode);
+    if (byCode) return byCode;
+  }
+  const lsNominal = odoo.nominal.normalized;
+  if (lsNominal !== null) {
+    const byAmount = rows.find(
+      (row) =>
+        row.nominal.normalized !== null &&
+        moneyEquals(lsNominal, row.nominal.normalized),
+    );
+    if (byAmount) return byAmount;
+  }
+  return (
+    rows.find((row) => row.concept_code.normalized === "1") ?? rows[0]!
+  );
+}
+
+function sameIdentity(
+  left: PayrollEntry | ReceiptRecord,
+  right: PayrollEntry | ReceiptRecord,
+) {
+  const leftId = left.document_number.normalized;
+  const rightId = right.document_number.normalized;
+  if (leftId && rightId) return leftId === rightId;
+  return (
+    nameSimilarity(
+      normalizeName(left.full_name.original),
+      normalizeName(right.full_name.original),
+    ) >= 0.8
+  );
+}
+
+function rankCandidates<T extends PayrollEntry | ReceiptRecord>(
   odoo: OdooRecord,
   candidates: T[],
 ) {
-  const ranked = candidates
+  return candidates
     .map((candidate) => ({
       candidate,
       ...evaluateCandidate(odoo, candidate),
     }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score);
+}
+
+function unmatchedChoice<T extends PayrollEntry | ReceiptRecord>(
+  ranked: Array<{ candidate: T; score: number; methods: string[] }>,
+) {
+  const best = ranked[0];
+  return {
+    selected: null,
+    score: best?.score ?? 0,
+    methods: best?.methods ?? [],
+    alternatives: ranked.slice(0, 3),
+  };
+}
+
+function chooseCandidate<T extends PayrollEntry | ReceiptRecord>(
+  odoo: OdooRecord,
+  candidates: T[],
+) {
+  const ranked = rankCandidates(odoo, candidates);
   const best = ranked[0];
   const second = ranked[1];
   const unambiguous =
@@ -752,16 +839,25 @@ function transferMatchesWorker(
   const transferId = transfer.document_number.normalized;
   const workerId = worker.document_number.normalized;
   if (transferId && workerId) return transferId === workerId;
-  const similarity = nameSimilarity(
-    normalizeName(transfer.beneficiary.original),
-    normalizeName(worker.full_name.original),
+
+  const transferName = normalizeName(transfer.beneficiary.original);
+  const names = [
+    worker.full_name.original,
+    ...records.flatMap((record) => [
+      record.odoo?.full_name.original,
+      record.payroll?.full_name.original,
+      record.receipt?.full_name.original,
+    ]),
+  ];
+  const bestName = Math.max(
+    0,
+    ...names.map((name) => nameSimilarity(transferName, normalizeName(name))),
   );
-  if (similarity >= 0.66) return true;
+  if (bestName >= 0.66) return true;
 
   const transferAccount = normalizeAccount(transfer.account.original);
-  const accountMatches = records.some(
-    (record) =>
-      transferAccount && record.receipt?.account.normalized === transferAccount,
+  const accountMatches = records.some((record) =>
+    accountsMatch(transferAccount, record.receipt?.account.normalized),
   );
   if (accountMatches) return true;
 
@@ -771,11 +867,10 @@ function transferMatchesWorker(
     return (
       transferAmount !== null &&
       receiptNet !== null &&
-      receiptNet !== undefined &&
       moneyEquals(transferAmount, receiptNet)
     );
   });
-  return similarity >= 0.45 && amountMatches;
+  return bestName >= 0.45 && amountMatches;
 }
 
 function combineMatchDetails(

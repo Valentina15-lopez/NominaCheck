@@ -16,7 +16,7 @@ export async function createClient() {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // Los Server Components no pueden escribir cookies. El middleware
+          // Los Server Components no pueden escribir cookies. El proxy
           // se encarga de renovar la sesión antes de renderizarlos.
         }
       },

@@ -5,7 +5,10 @@ import {
   type RawExtraction,
   type RawField,
 } from "@/lib/nominacheck/schema";
-import { normalizeDocumentNumber } from "@/lib/nominacheck/normalize";
+import {
+  normalizeDocumentNumber,
+  parseMoney,
+} from "@/lib/nominacheck/normalize";
 
 const MISTRAL_API_URL = "https://api.mistral.ai/v1";
 const RAW_EXTRACTION_JSON_SCHEMA = z.toJSONSchema(rawExtractionSchema, {
@@ -47,6 +50,12 @@ Reglas:
 - COMPROBANTE_TRANSFERENCIAS llena exclusivamente transfers, una transferencia
   por cada fila de destinatario. El identificador general de la operación va en
   transaction_reference, nunca en document_number.
+- Extraé TODAS las filas de destinatarios, en todas las páginas. Si el
+  comprobante declara "Nro. total de pagos: N", transfers debe tener N
+  elementos. No te quedes solo con la primera fila.
+- En comprobantes bancarios el período salarial no es la fecha de pago. Si el
+  mes liquidado no está visible, period queda null. Una fecha 06/04/2026 no
+  convierte el documento en período 2026-04.
 - Una fila bancaria equivale a una transferencia individual.
 - Un recibo, cargo, acumulación o concepto diferente equivale a un registro distinto.
 - No descartes duplicados ni personas que no figuren en la LS.
@@ -110,8 +119,9 @@ ${content.text}`,
     throw new Error("Mistral no devolvió una extracción estructurada.");
   }
 
-  const extraction = sanitizeExtraction(
-    rawExtractionSchema.parse(JSON.parse(rawContent)),
+  const extraction = recoverTransfersFromOcr(
+    sanitizeExtraction(rawExtractionSchema.parse(JSON.parse(rawContent))),
+    content.text,
   );
   if (content.pageCount !== null) {
     extraction.page_count = content.pageCount;
@@ -299,6 +309,112 @@ export function reclassifyReceiptsMistakenAsLiquidation(
     "El documento se reclasificó como RECIBO_SUELDO: tiene un trabajador por página y no es una planilla resumen de LS.",
   );
   return extraction;
+}
+
+/**
+ * Si el modelo se queda con la primera fila del listado de sueldos, completamos
+ * las transferencias faltantes a partir del OCR.
+ */
+export function recoverTransfersFromOcr(
+  extraction: RawExtraction,
+  ocrText: string,
+): RawExtraction {
+  if (
+    extraction.classification !== "COMPROBANTE_TRANSFERENCIAS" &&
+    extraction.classification !== "DOCUMENTO_MIXTO"
+  ) {
+    return extraction;
+  }
+
+  const recovered = parseTransferRowsFromOcr(ocrText);
+  if (!recovered.length) return extraction;
+
+  const existing = new Set(
+    extraction.transfers.map((transfer) =>
+      transferIdentity(transfer.beneficiary.original, transfer.amount.original),
+    ),
+  );
+  for (const transfer of recovered) {
+    const key = transferIdentity(
+      transfer.beneficiary.original,
+      transfer.amount.original,
+    );
+    if (existing.has(key)) continue;
+    extraction.transfers.push(transfer);
+    existing.add(key);
+  }
+
+  const declared = declaredPaymentCount(ocrText);
+  if (declared !== null && extraction.transfers.length < declared) {
+    extraction.warnings.push(
+      `El comprobante declara ${declared} pagos y se extrajeron ${extraction.transfers.length}.`,
+    );
+  }
+  return extraction;
+}
+
+export function parseTransferRowsFromOcr(ocrText: string) {
+  const paymentType = /pago\s+de\s+saldo|saldo\s+sueldos/i.test(ocrText)
+    ? "PAGO_DE_SALDO"
+    : /pago\s+a\s+cuenta/i.test(ocrText)
+      ? "PAGO_A_CUENTA"
+      : "NO_DETERMINADO";
+  const rows: RawExtraction["transfers"] = [];
+  const seen = new Set<string>();
+  const pattern =
+    /(\d{2}\/\d{2}\/\d{4})\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+(Cuenta|Banco\s*local)?\s*(\d{6,})?\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ ,.'-]+?)(?=\s+N\/A|\s+\d{2}\/\d{2}\/\d{4}|\s*$)/gi;
+
+  for (const match of ocrText.matchAll(pattern)) {
+    const amount = match[2] ?? null;
+    const beneficiary = cleanBeneficiary(match[5] ?? null);
+    if (!amount || !beneficiary || parseMoney(amount).value === null) continue;
+    const key = transferIdentity(beneficiary, amount);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      beneficiary: rawField(beneficiary, match[0]),
+      document_number: emptyRawField(),
+      account: rawField(match[4] ?? null, match[0]),
+      amount: { ...rawField(amount, match[0]), currency: "UYU" },
+      payment_date: rawField(match[1] ?? null, match[0]),
+      bank: rawField(match[3] ?? null, match[0]),
+      transaction_reference: emptyRawField(),
+      payment_status: emptyRawField(),
+      payment_type: paymentType,
+    });
+  }
+  return rows;
+}
+
+function declaredPaymentCount(ocrText: string) {
+  const match = ocrText.match(/Nro\.?\s*total\s*de\s*pagos\s*[:\s]*(\d+)/i);
+  if (!match?.[1]) return null;
+  const count = Number(match[1]);
+  return Number.isFinite(count) ? count : null;
+}
+
+function transferIdentity(beneficiary: string | null, amount: string | null) {
+  return `${(beneficiary ?? "").trim().toLocaleLowerCase("es")}|${(amount ?? "").replace(/\s/g, "")}`;
+}
+
+function cleanBeneficiary(value: string | null) {
+  if (!value) return null;
+  const cleaned = value
+    .replace(/\s+/g, " ")
+    .replace(/\bN\/A\b/gi, "")
+    .replace(/,$/, "")
+    .trim();
+  const words = cleaned.split(" ").filter((part) => /\p{L}/u.test(part));
+  return words.length >= 2 ? cleaned : null;
+}
+
+function rawField(original: string | null, evidence: string | null): RawField {
+  return {
+    original,
+    confidence: original ? 0.9 : 0,
+    page: null,
+    evidence: original ? evidence : null,
+  };
 }
 
 function sanitizeExtraction(extraction: RawExtraction) {
