@@ -1,9 +1,15 @@
+import { cookies } from "next/headers";
 import { ControlsDashboard } from "@/components/nomina/controls-dashboard";
 import { LoginGate } from "@/components/nomina/login-gate";
 import { WorkspaceLayout } from "@/components/nomina/workspace-layout";
-import { currentUser, hasSupabaseConfiguration } from "@/lib/supabase/user";
+import { hasSupabaseConfiguration } from "@/lib/supabase/config";
+import { currentUser } from "@/lib/supabase/user";
 
 export default async function HomePage() {
+  // Evita prerenderizar "Falta configurar Supabase" en el build, cuando las
+  // variables Secret de Vercel todavía no están disponibles.
+  await cookies();
+
   if (!hasSupabaseConfiguration()) {
     return (
       <main className="bg-muted/40 flex min-h-screen items-center justify-center px-5">
