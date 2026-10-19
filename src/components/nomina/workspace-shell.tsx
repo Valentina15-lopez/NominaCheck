@@ -7,11 +7,13 @@ import {
   Bell,
   ChevronDown,
   FileCheck2,
+  LogOut,
   Menu,
   Search,
   Settings2,
   Users,
 } from "lucide-react";
+import { signOutAction } from "@/app/auth/actions";
 import { cn } from "@/lib/cn";
 
 const navItems = [
@@ -34,12 +36,43 @@ function breadcrumb(pathname: string) {
   );
 }
 
-export function WorkspaceShell({ children }: { children: React.ReactNode }) {
+function initials(name: string) {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "?"
+  );
+}
+
+export function WorkspaceShell({
+  children,
+  userName,
+  userEmail,
+}: {
+  children: React.ReactNode;
+  userName: string;
+  userEmail: string;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function signOut() {
+    setSigningOut(true);
+    const result = await signOutAction();
+    if (result.error) {
+      setSigningOut(false);
+      return;
+    }
+    router.replace("/");
+    router.refresh();
+  }
 
   const isActive = (href: string) =>
     href === "/"
@@ -92,8 +125,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="border-border relative mt-auto border-t pt-5">
             {showProfile && (
-              <div className="border-border bg-card text-muted-foreground absolute right-0 bottom-14 left-0 rounded-xl border p-3 text-xs shadow-lg">
-                Sesión de demostración
+              <div className="border-border bg-card absolute right-0 bottom-14 left-0 rounded-xl border p-2 shadow-lg">
+                <button
+                  onClick={signOut}
+                  disabled={signingOut}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-medium disabled:opacity-60"
+                >
+                  <LogOut className="size-3.5" />
+                  {signingOut ? "Cerrando sesión…" : "Cerrar sesión"}
+                </button>
               </div>
             )}
             <button
@@ -101,12 +141,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               className="hover:bg-muted flex w-full items-center gap-3 rounded-xl px-2 py-1 text-left"
             >
               <div className="bg-muted flex size-9 items-center justify-center rounded-full text-xs font-semibold">
-                MG
+                {initials(userName)}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">María González</p>
+                <p className="truncate text-sm font-medium">{userName}</p>
                 <p className="text-muted-foreground truncate text-xs">
-                  Administradora
+                  {userEmail}
                 </p>
               </div>
               <ChevronDown className="text-muted-foreground ml-auto size-4" />
@@ -148,7 +188,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <Bell className="size-4" />
               </button>
               <div className="bg-muted flex size-8 items-center justify-center rounded-full text-xs font-semibold lg:hidden">
-                MG
+                {initials(userName)}
               </div>
             </div>
             {showNotifications && (

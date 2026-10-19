@@ -10,17 +10,13 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
-  buildReportDiagnosis,
-  recordGaps,
-} from "@/components/payroll/report-diagnosis";
+  ACCOUNTANT_REPORT_HEADERS,
+  accountantReportCsv,
+  buildAccountantReportRows,
+} from "@/components/payroll/accountant-report";
+import { buildReportDiagnosis } from "@/components/payroll/report-diagnosis";
 import { StatusBadge, statusLabel, SummaryCard } from "@/components/payroll/ui";
-import type {
-  ControlInput,
-  EmploymentRecord,
-  MoneyField,
-  NominaCheckResult,
-  WorkerRecord,
-} from "@/types/nominacheck";
+import type { ControlInput, NominaCheckResult } from "@/types/nominacheck";
 
 export function ReportScreen({
   result,
@@ -32,31 +28,31 @@ export function ReportScreen({
   onBack: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const diagnosis = useMemo(() => buildReportDiagnosis(result), [result]);
-  const rows = useMemo(
-    () =>
-      result.workers.flatMap((worker) =>
-        worker.employment_records.map((record) => ({ worker, record })),
-      ),
-    [result.workers],
+  const rows = useMemo(() => buildAccountantReportRows(result), [result]);
+  const totals = useMemo(
+    () => ({
+      lsNominal: sumAmounts(rows.map((row) => row.importeNominalLs)),
+      payroll: sumAmounts(rows.map((row) => row.importeNomina)),
+      receiptNominal: sumAmounts(rows.map((row) => row.importeNominalRecibo)),
+      receiptNet: sumAmounts(rows.map((row) => row.reciboLiquido)),
+      transferred: sumAmounts(rows.map((row) => row.transferencia)),
+    }),
+    [rows],
   );
-  const totals = useMemo(() => {
-    const values = rows.map(({ record }) => ({
-      lsNominal: record.odoo?.nominal.normalized ?? null,
-      lsNet: record.odoo?.net.normalized ?? null,
-      payroll: record.payroll?.nominal.normalized ?? null,
-      receiptNet: record.receipt?.net.normalized ?? null,
-      transferred: record.proposed_transfer_total,
-    }));
-    return {
-      lsNominal: sumAmounts(values.map((item) => item.lsNominal)),
-      lsNet: sumAmounts(values.map((item) => item.lsNet)),
-      payroll: sumAmounts(values.map((item) => item.payroll)),
-      receiptNet: sumAmounts(values.map((item) => item.receiptNet)),
-      transferred: sumAmounts(values.map((item) => item.transferred)),
-    };
-  }, [rows]);
+
+  function downloadCsv() {
+    const url = URL.createObjectURL(
+      new Blob([accountantReportCsv(rows)], {
+        type: "text/csv;charset=utf-8",
+      }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `nominacheck-${control.period || "informe"}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   function downloadJson() {
     const url = URL.createObjectURL(
@@ -80,7 +76,7 @@ export function ReportScreen({
   }
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className="mx-auto max-w-[1400px]">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <p className="text-primary text-sm font-medium">Paso 6 de 6</p>
@@ -103,6 +99,14 @@ export function ReportScreen({
           </button>
           <button
             type="button"
+            onClick={downloadCsv}
+            className="border-border hover:bg-muted inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 font-medium"
+          >
+            <Download className="size-4" aria-hidden />
+            Excel / CSV
+          </button>
+          <button
+            type="button"
             onClick={downloadJson}
             className="border-border hover:bg-muted inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 font-medium"
           >
@@ -120,7 +124,7 @@ export function ReportScreen({
         </div>
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4 print:hidden">
         <SummaryCard
           label="Trabajadores en LS"
           value={String(result.summary.workers_in_ls)}
@@ -149,16 +153,16 @@ export function ReportScreen({
         />
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5 print:hidden">
         <AmountCard label="Nominal LS" value={totals.lsNominal} />
-        <AmountCard label="Líquido LS" value={totals.lsNet} />
+        <AmountCard label="Nominal recibos" value={totals.receiptNominal} />
         <AmountCard label="Nominal BPS" value={totals.payroll} />
         <AmountCard label="Líquido recibos" value={totals.receiptNet} />
         <AmountCard label="Transferido" value={totals.transferred} />
       </div>
 
       {diagnosis ? (
-        <section className="border-accent bg-accent/40 mt-8 rounded-2xl border p-5">
+        <section className="border-accent bg-accent/40 mt-8 rounded-2xl border p-5 print:hidden">
           <div className="flex gap-3">
             <AlertTriangle className="text-accent-foreground mt-0.5 size-5 shrink-0" />
             <div>
@@ -173,7 +177,7 @@ export function ReportScreen({
         </section>
       ) : null}
 
-      <section className="border-border bg-card mt-8 rounded-2xl border p-5">
+      <section className="border-border bg-card mt-8 rounded-2xl border p-5 print:hidden">
         <h2 className="font-semibold">Documentos analizados</h2>
         <p className="text-muted-foreground mt-1 text-sm">
           Si un PDF de recibos aparece como liquidación, el cruce no puede
@@ -218,51 +222,73 @@ export function ReportScreen({
         <div className="border-border border-b p-5">
           <h2 className="font-semibold">Comparación por trabajador</h2>
           <p className="text-muted-foreground mt-1 text-sm">
-            LS frente a nómina BPS, recibo y banco. Abrí una fila para ver la
-            evidencia.
+            Mismas columnas que la planilla de conciliación: nominal LS, recibo
+            y nómina, líquido, transferencia, diferencias y estado.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-muted/50 text-muted-foreground text-xs">
+          <table className="w-full min-w-[1280px] text-left text-xs">
+            <thead className="bg-muted/50 text-muted-foreground">
               <tr>
-                <th className="px-4 py-3 font-medium">Trabajador</th>
-                <th className="px-4 py-3 font-medium">Cargo / AL</th>
-                <th className="px-4 py-3 text-right font-medium">LS nominal</th>
-                <th className="px-4 py-3 text-right font-medium">Nómina</th>
-                <th className="px-4 py-3 text-right font-medium">
-                  Recibo líquido
-                </th>
-                <th className="px-4 py-3 text-right font-medium">Banco</th>
-                <th className="px-4 py-3 font-medium">Faltante</th>
-                <th className="px-4 py-3 font-medium">Estado</th>
+                {ACCOUNTANT_REPORT_HEADERS.map((header) => (
+                  <th
+                    key={header}
+                    className={`px-3 py-3 font-medium ${
+                      header.startsWith("Importe") ||
+                      header.startsWith("IMPORTE") ||
+                      header.startsWith("RECIBO") ||
+                      header.startsWith("TRANSFERENCIA") ||
+                      header.startsWith("diferencias")
+                        ? "text-right"
+                        : ""
+                    }`}
+                  >
+                    {header}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ worker, record }) => {
-                const expanded = expandedId === record.employment_record_id;
-                const gaps = recordGaps(record);
-                return (
-                  <WorkerRows
-                    key={record.employment_record_id}
-                    worker={worker}
-                    record={record}
-                    expanded={expanded}
-                    onToggle={() =>
-                      setExpandedId(
-                        expanded ? null : record.employment_record_id,
-                      )
-                    }
-                    gaps={gaps}
-                    incidents={result.incidents.filter(
-                      (incident) =>
-                        incident.employment_record_id ===
-                          record.employment_record_id ||
-                        incident.worker_id === worker.worker_id,
-                    )}
-                  />
-                );
-              })}
+              {rows.map((row, index) => (
+                <tr
+                  key={`${row.empleado}-${index}`}
+                  className="border-border border-t align-top"
+                >
+                  <td className="px-3 py-3 font-medium">{row.empleado}</td>
+                  <td className="text-muted-foreground px-3 py-3">
+                    {row.categoriaMides ?? "—"}
+                  </td>
+                  <td className="px-3 py-3">{row.concepto ?? "—"}</td>
+                  <td className="px-3 py-3 text-right">
+                    {row.horasMensuales ?? "—"}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.importeNominalLs)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.importeNominalRecibo)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.importeNomina)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.reciboLiquido)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.transferencia)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.diferenciaNominalReciboNomina)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.diferenciaLiquidoReciboTransferencia)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {formatAmount(row.diferenciaNominalReciboLs)}
+                  </td>
+                  <td className="px-3 py-3">{row.estado || "—"}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -271,7 +297,7 @@ export function ReportScreen({
       {(result.unmatched_records.receipts.length > 0 ||
         result.unmatched_records.transfers.length > 0 ||
         result.unmatched_records.payroll_entries.length > 0) && (
-        <section className="border-border bg-card mt-6 rounded-2xl border p-5 text-sm">
+        <section className="border-border bg-card mt-6 rounded-2xl border p-5 text-sm print:hidden">
           <h2 className="font-semibold">Registros sin vincular</h2>
           <p className="text-muted-foreground mt-2">
             Nómina: {result.unmatched_records.payroll_entries.length} · Recibos:{" "}
@@ -283,7 +309,7 @@ export function ReportScreen({
       )}
 
       {result.incidents.length > 0 ? (
-        <section className="border-border bg-card mt-6 rounded-2xl border p-5">
+        <section className="border-border bg-card mt-6 rounded-2xl border p-5 print:hidden">
           <h2 className="font-semibold">Incidencias</h2>
           <ul className="mt-3 space-y-2 text-sm">
             {result.incidents.slice(0, 12).map((incident) => (
@@ -325,150 +351,6 @@ export function ReportScreen({
   );
 }
 
-function WorkerRows({
-  worker,
-  record,
-  expanded,
-  onToggle,
-  gaps,
-  incidents,
-}: {
-  worker: WorkerRecord;
-  record: EmploymentRecord;
-  expanded: boolean;
-  onToggle: () => void;
-  gaps: { payroll: boolean; receipt: boolean; transfer: boolean };
-  incidents: NominaCheckResult["incidents"];
-}) {
-  const missing = [
-    gaps.payroll ? "Nómina" : null,
-    gaps.receipt ? "Recibo" : null,
-    gaps.transfer ? "Banco" : null,
-  ].filter(Boolean);
-
-  return (
-    <>
-      <tr className="border-border hover:bg-muted/30 border-t">
-        <td className="px-4 py-3">
-          <button
-            type="button"
-            onClick={onToggle}
-            className="text-left font-medium hover:underline"
-          >
-            {worker.identity.full_name.original ?? "Sin nombre"}
-          </button>
-          <p className="text-muted-foreground text-xs">
-            {worker.identity.document_number.original ?? "Sin cédula"}
-          </p>
-        </td>
-        <td className="text-muted-foreground px-4 py-3">
-          {record.employment_accumulation.original ??
-            record.position.original ??
-            "Sin cargo"}
-        </td>
-        <td className="px-4 py-3 text-right">
-          {formatMoneyValue(record.odoo?.nominal.normalized ?? null)}
-        </td>
-        <td className="px-4 py-3 text-right">
-          {formatMoneyValue(record.payroll?.nominal.normalized ?? null)}
-        </td>
-        <td className="px-4 py-3 text-right">
-          {formatMoneyValue(record.receipt?.net.normalized ?? null)}
-        </td>
-        <td className="px-4 py-3 text-right">
-          {formatMoneyValue(record.proposed_transfer_total)}
-        </td>
-        <td className="px-4 py-3">
-          {missing.length ? (
-            <span className="text-accent-foreground text-xs">
-              {missing.join(" · ")}
-            </span>
-          ) : (
-            <span className="text-muted-foreground text-xs">Completo</span>
-          )}
-        </td>
-        <td className="px-4 py-3">
-          <StatusBadge label={record.proposed_status} />
-        </td>
-      </tr>
-      {expanded ? (
-        <tr className="border-border bg-muted/20 border-t">
-          <td colSpan={8} className="px-4 py-4">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <EvidenceBlock
-                title="Liquidación LS"
-                nominal={record.odoo?.nominal}
-                net={record.odoo?.net}
-              />
-              <EvidenceBlock
-                title="Nómina BPS"
-                nominal={record.payroll?.nominal}
-              />
-              <EvidenceBlock
-                title="Recibo"
-                nominal={record.receipt?.nominal}
-                net={record.receipt?.net}
-              />
-              <div className="bg-card rounded-xl p-3 text-sm">
-                <p className="font-medium">Banco</p>
-                <p className="mt-2">
-                  Transferido:{" "}
-                  {formatMoneyValue(record.proposed_transfer_total)}
-                </p>
-                <p>
-                  Diferencia: {formatMoneyValue(record.transfer_difference)}
-                </p>
-                <p className="text-muted-foreground mt-2 text-xs">
-                  {record.transfers.length} movimiento
-                  {record.transfers.length === 1 ? "" : "s"}
-                </p>
-              </div>
-            </div>
-            {record.observations.length ? (
-              <ul className="text-muted-foreground mt-3 list-disc pl-5 text-sm">
-                {record.observations.map((observation) => (
-                  <li key={observation}>{observation}</li>
-                ))}
-              </ul>
-            ) : null}
-            {incidents.length ? (
-              <p className="text-muted-foreground mt-2 text-xs">
-                {incidents
-                  .map((incident) => incident.description)
-                  .filter((item, index, list) => list.indexOf(item) === index)
-                  .join(" · ")}
-              </p>
-            ) : null}
-          </td>
-        </tr>
-      ) : null}
-    </>
-  );
-}
-
-function EvidenceBlock({
-  title,
-  nominal,
-  net,
-}: {
-  title: string;
-  nominal?: MoneyField;
-  net?: MoneyField;
-}) {
-  return (
-    <div className="bg-card rounded-xl p-3 text-sm">
-      <p className="font-medium">{title}</p>
-      <p className="mt-2">Nominal: {formatMoneyField(nominal)}</p>
-      {net ? <p>Líquido: {formatMoneyField(net)}</p> : null}
-      <p className="text-muted-foreground mt-2 text-xs">
-        {nominal?.source
-          ? `Página ${nominal.source.page ?? "s/d"} · ${nominal.source.evidence ?? "sin cita"}`
-          : "Sin evidencia"}
-      </p>
-    </div>
-  );
-}
-
 function AmountCard({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="border-border bg-card rounded-2xl border p-4">
@@ -484,8 +366,13 @@ function sumAmounts(values: Array<number | null>) {
   return present.reduce((sum, value) => sum + value, 0);
 }
 
-function formatMoneyField(field: MoneyField | undefined) {
-  return formatMoneyValue(field?.normalized ?? null);
+function formatAmount(value: number | null) {
+  return value === null
+    ? "—"
+    : new Intl.NumberFormat("es-UY", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value);
 }
 
 function formatMoneyValue(value: number | null) {

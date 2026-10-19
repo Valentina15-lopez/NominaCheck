@@ -103,6 +103,18 @@ MISTRAL_API_KEY=
 # NOMINACHECK_OCR_MODEL=mistral-ocr-4-1
 ```
 
+Creá el esquema una sola vez: abrí el SQL Editor de tu proyecto de Supabase y
+ejecutá `supabase/migrations/0001_nominacheck.sql`. Crea las tablas de
+controles, documentos, trabajadores, pagos y preferencias, sus políticas de
+RLS y el bucket privado `control-documents` donde se guardan los archivos.
+
+Para probar el login podés usar este usuario, ya creado y confirmado:
+
+| Campo      | Valor                     |
+| ---------- | ------------------------- |
+| Correo     | `prueba@nominacheck.test` |
+| Contraseña | `Prueba123!`              |
+
 Después:
 
 ```bash
@@ -131,14 +143,26 @@ funcionan: el endpoint `/api/analyze` exige sesión y `MISTRAL_API_KEY`.
 
 ```
 src/
-  app/                  Rutas, login/registro y POST /api/analyze
-  components/payroll/   Pantallas del flujo de control
+  app/controles/        Flujo del control: alta, documentos, análisis, informe
+  components/nomina/    Pantallas del espacio de trabajo y store de controles
+  lib/db/               Lectura y escritura en Supabase
   lib/nominacheck/      Extracción, normalización y conciliación
   config/               Códigos de concepto salarial
   types/nominacheck.ts  Contrato del resultado
+supabase/migrations/    Esquema de la base
 ```
 
-El análisis corre en el servidor (`src/app/api/analyze/route.ts`, hasta 300 s):
+Todo el estado vive en Supabase. Al crear un control se guarda una fila en
+`controls`; los archivos van al bucket `control-documents` y se registran en
+`control_documents`. Cuando el análisis termina, el `NominaCheckResult`
+completo queda en `controls.result` y, derivada de él, una vista por persona
+en `control_workers` y `control_payments`: esa es la que el contador edita al
+confirmar o reasignar pagos, y por eso sobrevive a una nueva corrida.
+
+El análisis de un control guardado corre en
+`src/app/api/controles/[controlId]/analizar/route.ts` (hasta 300 s), que baja
+los archivos del bucket y llama al mismo motor que expone `POST /api/analyze`
+para usos sin persistencia:
 
 1. **OCR / parseo.** PDF e imágenes van a Mistral OCR. CSV y XLSX se leen
    en crudo.

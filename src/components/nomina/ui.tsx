@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Check, FileText, X, type LucideIcon } from "lucide-react";
+import { ExternalLink, FileText, X, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { ControlStatus, WorkerStatus } from "@/types/nomina";
 
@@ -60,6 +60,7 @@ const controlLabels: Record<ControlStatus, string> = {
   ready: "Listo para analizar",
   processing: "Procesando",
   completed: "Completado",
+  error: "Análisis interrumpido",
 };
 
 export function StatusBadge({
@@ -84,7 +85,9 @@ export function StatusBadge({
           ? "bg-primary/10 text-primary"
           : isAttention
             ? "bg-amber-50 text-amber-700"
-            : "bg-muted text-muted-foreground",
+            : status === "error"
+              ? "bg-red-50 text-red-700"
+              : "bg-muted text-muted-foreground",
       )}
     >
       {label}
@@ -117,11 +120,19 @@ export function EmptyState({
   );
 }
 
+/**
+ * Muestra el archivo original guardado en el bucket. La URL es temporal y la
+ * firma el servidor: el bucket es privado.
+ */
 export function DocumentPreview({
   name,
+  url,
+  status,
   onClose,
 }: {
   name: string;
+  url: string | null;
+  status: "loading" | "ready" | "unavailable";
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -147,29 +158,49 @@ export function DocumentPreview({
               Vista previa del documento original
             </p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar vista previa"
-            className="text-muted-foreground hover:bg-muted rounded-lg p-1"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-        <div className="border-border bg-muted/50 mt-6 flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed text-center">
-          <div className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-full">
-            <FileText className="size-5" />
+          <div className="flex items-center gap-2">
+            {url && (
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:bg-primary/10 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium"
+              >
+                <ExternalLink className="size-3.5" /> Abrir
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              aria-label="Cerrar vista previa"
+              className="text-muted-foreground hover:bg-muted rounded-lg p-1"
+            >
+              <X className="size-4" />
+            </button>
           </div>
-          <p className="mt-4 text-sm font-medium">
-            Documento disponible en modo demostración
-          </p>
-          <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-5">
-            En esta versión mock se conserva la referencia al archivo, sin subir
-            contenido a un servidor.
-          </p>
-          <span className="text-primary mt-4 inline-flex items-center gap-2 text-xs font-medium">
-            <Check className="size-3.5" /> Referencia cargada
-          </span>
         </div>
+        {status === "ready" && url ? (
+          <iframe
+            src={url}
+            title={`Vista previa de ${name}`}
+            className="border-border mt-6 h-[60vh] w-full rounded-xl border"
+          />
+        ) : (
+          <div className="border-border bg-muted/50 mt-6 flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed p-6 text-center">
+            <div className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-full">
+              <FileText className="size-5" />
+            </div>
+            <p className="mt-4 text-sm font-medium">
+              {status === "loading"
+                ? "Abriendo el documento…"
+                : "El archivo no está disponible"}
+            </p>
+            <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-5">
+              {status === "loading"
+                ? "Estamos generando un enlace temporal al archivo guardado."
+                : "No encontramos el archivo original de este registro. Volvé a cargarlo desde la pantalla de documentos."}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

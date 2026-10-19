@@ -1,4 +1,5 @@
-export type ControlStatus = "draft" | "ready" | "processing" | "completed";
+export type ControlStatus =
+  "draft" | "ready" | "processing" | "completed" | "error";
 export type WorkerStatus =
   "correct" | "warning" | "incomplete" | "manual-review";
 export type DocumentStatus = "uploaded" | "error" | "processed";
@@ -21,10 +22,15 @@ export type PaymentDocument = {
   reference?: string;
   sharedWith?: string[];
   associationStatus?: "confirmed" | "suggested" | "unassigned";
+  /** Id que el motor le dio al archivo del que salió este pago. */
+  sourceDocumentId?: string;
 };
 
 export type Worker = {
+  /** Identificador de la fila en la base, usado en las URLs. */
   id: string;
+  /** Cédula extraída de los documentos. */
+  documentNumber: string;
   name: string;
   role: string;
   status: WorkerStatus;
@@ -50,12 +56,25 @@ export type SalaryControl = {
   period: string;
   status: ControlStatus;
   createdAt: string;
+  roundingTolerance: number | null;
+  observations: string;
+  /** `proposed_general_status` del último análisis, si ya corrió. */
+  generalStatus: string | null;
+  processingError: string | null;
+  hasResult: boolean;
   documents: ControlDocument[];
   workers: Worker[];
-  processingSteps: ProcessingStep[];
 };
 
 export type NewControlInput = {
   company: string;
   period: string;
+  roundingTolerance?: number | null;
+  observations?: string;
+};
+
+export type UserSettings = {
+  currency: "UYU" | "ARS" | "USD";
+  warnDifferences: boolean;
+  roundingTolerance: number | null;
 };
