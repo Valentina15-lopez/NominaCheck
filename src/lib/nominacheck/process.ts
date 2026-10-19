@@ -43,6 +43,13 @@ export type ExtractedDocument = {
   extraction: RawExtraction;
 };
 
+type CandidateChoice<T extends PayrollEntry | ReceiptRecord> = {
+  selected: T | null;
+  score: number;
+  methods: string[];
+  alternatives: Array<{ candidate: T; score: number; methods: string[] }>;
+};
+
 const STATUS_PRIORITY: Record<GeneralStatus, number> = {
   CORRECTO: 0,
   CORRECTO_CON_REDONDEO: 1,
@@ -653,7 +660,10 @@ function reconcileRecord(
   record.proposed_status = worstStatus(statuses);
 }
 
-function choosePayroll(odoo: OdooRecord, candidates: PayrollEntry[]) {
+function choosePayroll(
+  odoo: OdooRecord,
+  candidates: PayrollEntry[],
+): CandidateChoice<PayrollEntry> {
   const ranked = rankCandidates(odoo, candidates);
   const best = ranked[0];
   if (!best || best.score < 0.6) {
@@ -735,7 +745,7 @@ function rankCandidates<T extends PayrollEntry | ReceiptRecord>(
 
 function unmatchedChoice<T extends PayrollEntry | ReceiptRecord>(
   ranked: Array<{ candidate: T; score: number; methods: string[] }>,
-) {
+): CandidateChoice<T> {
   const best = ranked[0];
   return {
     selected: null,
@@ -748,7 +758,7 @@ function unmatchedChoice<T extends PayrollEntry | ReceiptRecord>(
 function chooseCandidate<T extends PayrollEntry | ReceiptRecord>(
   odoo: OdooRecord,
   candidates: T[],
-) {
+): CandidateChoice<T> {
   const ranked = rankCandidates(odoo, candidates);
   const best = ranked[0];
   const second = ranked[1];
@@ -851,13 +861,18 @@ function transferMatchesWorker(
   ];
   const bestName = Math.max(
     0,
-    ...names.map((name) => nameSimilarity(transferName, normalizeName(name))),
+    ...names.map((name) =>
+      nameSimilarity(transferName, normalizeName(name ?? null)),
+    ),
   );
   if (bestName >= 0.66) return true;
 
   const transferAccount = normalizeAccount(transfer.account.original);
   const accountMatches = records.some((record) =>
-    accountsMatch(transferAccount, record.receipt?.account.normalized),
+    accountsMatch(
+      transferAccount,
+      record.receipt?.account.normalized ?? null,
+    ),
   );
   if (accountMatches) return true;
 
@@ -865,8 +880,8 @@ function transferMatchesWorker(
     const transferAmount = transfer.amount.normalized;
     const receiptNet = record.receipt?.net.normalized;
     return (
-      transferAmount !== null &&
-      receiptNet !== null &&
+      transferAmount != null &&
+      receiptNet != null &&
       moneyEquals(transferAmount, receiptNet)
     );
   });
