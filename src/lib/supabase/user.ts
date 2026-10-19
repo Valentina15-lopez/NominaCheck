@@ -1,12 +1,8 @@
 import "server-only";
+import { hasSupabaseConfiguration } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
-export function hasSupabaseConfiguration() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  );
-}
+export { hasSupabaseConfiguration };
 
 export type SessionUser = {
   id: string;
