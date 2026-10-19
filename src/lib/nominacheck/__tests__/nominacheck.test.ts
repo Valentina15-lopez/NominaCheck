@@ -352,6 +352,48 @@ test("recupera las filas de un comprobante de sueldos si el modelo solo extrae l
   assert.equal(parseTransferRowsFromOcr(ocr).length, 3);
 });
 
+test("recupera pagos de sueldo aunque el beneficiario quede partido en varias líneas", () => {
+  const ocr = `Nro. total de
+pagos
+10
+06/04/2026 4.842,00 Cuenta 2201000001331594900 MARCELA ESTEVES N/A N/A
+06/04/2026 35.616,00 Cuenta 2201000003460611000
+FACUNDO
+MENDARO
+N/A N/A
+06/04/2026 22.915,00 Cuenta 2201000003310885000
+CHRISTIAN
+BERNADA
+N/A N/A
+06/04/2026 23.830,00 Cuenta 2201000003545037800
+CARDOZO
+CABRERA,
+PRISCILLA ANALIA
+N/A N/A
+06/04/2026 12.873,00
+Banco
+local
+3701447850
+marcelo
+marmeche
+N/A N/A
+Creador VIDAL, GERARDO (25356222) - 06/04/2026 19:11`;
+
+  const rows = parseTransferRowsFromOcr(ocr);
+  assert.deepEqual(
+    rows.map((row) => row.beneficiary.original),
+    [
+      "MARCELA ESTEVES",
+      "FACUNDO MENDARO",
+      "CHRISTIAN BERNADA",
+      "CARDOZO CABRERA, PRISCILLA ANALIA",
+      "marcelo marmeche",
+    ],
+  );
+  assert.equal(rows[1]?.amount.original, "35.616,00");
+  assert.equal(rows[3]?.account.original, "2201000003545037800");
+});
+
 test("no distribuye transferencias entre múltiples acumulaciones", () => {
   const ls = baseExtraction("LIQUIDACION_ODOO");
   ls.odoo_entries.push(odooEntry("Cargo A"), odooEntry("Cargo B"));

@@ -361,23 +361,49 @@ export function parseTransferRowsFromOcr(ocrText: string) {
       : "NO_DETERMINADO";
   const rows: RawExtraction["transfers"] = [];
   const seen = new Set<string>();
-  const pattern =
-    /(\d{2}\/\d{2}\/\d{4})\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+(Cuenta|Banco\s*local)?\s*(\d{6,})?\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ ,.'-]+?)(?=\s+N\/A|\s+\d{2}\/\d{2}\/\d{4}|\s*$)/gi;
+  // El listado del banco parte el nombre en varias líneas (FACUNDO / MENDARO).
+  // Cada pago empieza con la fecha; el nombre es lo que queda entre la cuenta y N/A.
+  const text = ocrText.replace(/\u000c/g, "\n").replace(/\|/g, " ");
+  const chunks = text.split(/(?=\b\d{2}\/\d{2}\/\d{4}\b)/);
 
-  for (const match of ocrText.matchAll(pattern)) {
-    const amount = match[2] ?? null;
-    const beneficiary = cleanBeneficiary(match[5] ?? null);
-    if (!amount || !beneficiary || parseMoney(amount).value === null) continue;
-    const key = transferIdentity(beneficiary, amount);
+  for (const chunk of chunks) {
+    const dateMatch = chunk.match(/^(\d{2}\/\d{2}\/\d{4})/);
+    if (!dateMatch?.[1]) continue;
+    const body = chunk.slice(dateMatch[1].length);
+    const amountMatch = body.match(/(\d{1,3}(?:\.\d{3})*,\d{2})/);
+    if (!amountMatch?.[1] || amountMatch.index === undefined) continue;
+    if (parseMoney(amountMatch[1]).value === null) continue;
+    const afterAmount = body.slice(amountMatch.index + amountMatch[1].length);
+    const untilMarker =
+      afterAmount.split(/\bN\/A\b|\bHistorial\b|\bCreador\b|\bFirmantes\b/i)[0] ??
+      afterAmount;
+    const accountMatch = untilMarker.match(/(\d{6,})/);
+    const nameSource =
+      accountMatch?.[1] && accountMatch.index !== undefined
+        ? untilMarker.slice(accountMatch.index + accountMatch[1].length)
+        : untilMarker;
+    const beneficiary = cleanBeneficiary(
+      nameSource.replace(/\b(cuenta|banco|local|mail|beneficiario)\b/gi, " "),
+    );
+    if (!beneficiary) continue;
+    const key = transferIdentity(beneficiary, amountMatch[1]);
     if (seen.has(key)) continue;
     seen.add(key);
+    const evidence = chunk.trim();
     rows.push({
-      beneficiary: rawField(beneficiary, match[0]),
+      beneficiary: rawField(beneficiary, evidence),
       document_number: emptyRawField(),
-      account: rawField(match[4] ?? null, match[0]),
-      amount: { ...rawField(amount, match[0]), currency: "UYU" },
-      payment_date: rawField(match[1] ?? null, match[0]),
-      bank: rawField(match[3] ?? null, match[0]),
+      account: rawField(accountMatch?.[1] ?? null, evidence),
+      amount: { ...rawField(amountMatch[1], evidence), currency: "UYU" },
+      payment_date: rawField(dateMatch[1], evidence),
+      bank: rawField(
+        /banco\s*local/i.test(untilMarker)
+          ? "Banco local"
+          : /cuenta/i.test(untilMarker)
+            ? "Cuenta"
+            : null,
+        evidence,
+      ),
       transaction_reference: emptyRawField(),
       payment_status: emptyRawField(),
       payment_type: paymentType,
