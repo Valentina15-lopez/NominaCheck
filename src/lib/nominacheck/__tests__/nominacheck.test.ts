@@ -19,8 +19,10 @@ import {
 } from "@/lib/nominacheck/normalize";
 import {
   inlineOcrTables,
+  parseReceiptsFromOcr,
   parseTransferRowsFromOcr,
   reclassifyReceiptsMistakenAsLiquidation,
+  recoverReceiptsFromOcr,
   recoverTransfersFromOcr,
 } from "@/lib/nominacheck/extract";
 import { nominaCheckResultSchema } from "@/lib/nominacheck/schema";
@@ -73,7 +75,10 @@ test("normaliza nombres, períodos y formatos monetarios", () => {
 
 test("trata nombres intermedios y errores ortográficos menores como la misma persona", () => {
   assert.equal(
-    nameSimilarity(normalizeName("Pérez, Ana"), normalizeName("Ana María Pérez")),
+    nameSimilarity(
+      normalizeName("Pérez, Ana"),
+      normalizeName("Ana María Pérez"),
+    ),
     1,
   );
   assert.ok(
@@ -230,21 +235,24 @@ test("el informe usa las columnas y el estado de la planilla de la contadora", (
   );
 
   const rows = buildAccountantReportRows(result);
-  assert.deepEqual([...ACCOUNTANT_REPORT_HEADERS], [
-    "Empleado",
-    "Categoría MIDES",
-    "Concepto",
-    "Cantidad Hs. Trabajadas mensuales",
-    "Importe Nominal LS",
-    "Importe Nominal RECIBO",
-    "IMPORTE NOMINA",
-    "RECIBO LIQUIDO",
-    "TRANSFERENCIA",
-    "diferencias nominal recibo/ nomina",
-    "diferencias liquido recibo/ transferencia",
-    "diferencias nominal recibo/ nominal LS",
-    "ESTADO",
-  ]);
+  assert.deepEqual(
+    [...ACCOUNTANT_REPORT_HEADERS],
+    [
+      "Empleado",
+      "Categoría MIDES",
+      "Concepto",
+      "Cantidad Hs. Trabajadas mensuales",
+      "Importe Nominal LS",
+      "Importe Nominal RECIBO",
+      "IMPORTE NOMINA",
+      "RECIBO LIQUIDO",
+      "TRANSFERENCIA",
+      "diferencias nominal recibo/ nomina",
+      "diferencias liquido recibo/ transferencia",
+      "diferencias nominal recibo/ nominal LS",
+      "ESTADO",
+    ],
+  );
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.empleado, "26217784 - Estevez, Marcela");
   assert.equal(
@@ -570,6 +578,55 @@ test("reclasifica un PDF de recibos que Mistral etiquetó como LS", () => {
   assert.equal(result.classification, "RECIBO_SUELDO");
   assert.equal(result.receipts.length, 18);
   assert.equal(result.odoo_entries.length, 0);
+});
+
+const RECEIPT_OCR = `FACTOR SOLIDARIDAD
+Febrero 2026
+DATOS DEL EMPLEADO
+Nombres: ANA MARIA
+Apellidos: PEREZ
+Cargo: Cuidador/a                                          Nº Cuenta: 1331594900
+C.I.   4567890-5
+Total Gravado:              $ 78.297,34 Total de Haberes:                     $ 80.013,34
+Líquido a Cobrar :                       $ 24.842,00
+Recibí el importe
+DATOS DEL EMPLEADO
+Nombres: LUIS
+Apellidos: DI TRAPANI
+MONTESDEOCA
+C.I. 5000000-0
+Total de Haberes: $ 66.721,39
+Líquido a Cobrar :
+
+$ 34.961,00
+`;
+
+test("lee nominal y líquido de un PDF de recibos aunque el modelo lo haya tomado como LS", () => {
+  const parsed = parseReceiptsFromOcr(RECEIPT_OCR);
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0]?.document_number.original, "4567890-5");
+  assert.equal(parsed[0]?.nominal.original, "80.013,34");
+  assert.equal(parsed[0]?.net.original, "24.842,00");
+  assert.equal(parsed[0]?.full_name.original, "ANA MARIA PEREZ");
+  assert.equal(parsed[0]?.account.original, "1331594900");
+  assert.equal(parsed[1]?.full_name.original, "LUIS DI TRAPANI MONTESDEOCA");
+  assert.equal(parsed[1]?.nominal.original, "66.721,39");
+
+  const extraction = baseExtraction("LIQUIDACION_ODOO");
+  extraction.odoo_entries.push(odooEntry());
+  const recovered = recoverReceiptsFromOcr(extraction, RECEIPT_OCR);
+  assert.equal(recovered.classification, "RECIBO_SUELDO");
+  assert.equal(recovered.odoo_entries.length, 0);
+  assert.equal(recovered.receipts.length, 2);
+});
+
+test("no pisa una nómina cuando el texto no es un recibo mal clasificado con filas", () => {
+  const extraction = baseExtraction("NOMINA");
+  extraction.payroll_entries.push(payrollEntry());
+  const recovered = recoverReceiptsFromOcr(extraction, RECEIPT_OCR);
+  assert.equal(recovered.classification, "NOMINA");
+  assert.equal(recovered.receipts.length, 0);
+  assert.equal(recovered.payroll_entries.length, 1);
 });
 
 test("no reclasifica una LS compacta con varios trabajadores", () => {

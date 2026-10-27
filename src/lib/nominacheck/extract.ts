@@ -80,25 +80,26 @@ export async function extractDocument(
   }
 
   const content = await contentForAnalysis(file, apiKey);
-  const response = await mistralRequest<MistralChatResponse>(
-    "/chat/completions",
-    apiKey,
-    {
-      model: process.env.NOMINACHECK_MISTRAL_MODEL ?? "mistral-small-latest",
-      temperature: 0,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "nomina_check_extraction",
-          schema: RAW_EXTRACTION_JSON_SCHEMA,
-          strict: true,
+  try {
+    const response = await mistralRequest<MistralChatResponse>(
+      "/chat/completions",
+      apiKey,
+      {
+        model: process.env.NOMINACHECK_MISTRAL_MODEL ?? "mistral-small-latest",
+        temperature: 0,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "nomina_check_extraction",
+            schema: RAW_EXTRACTION_JSON_SCHEMA,
+            strict: true,
+          },
         },
-      },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Analizá este archivo como una unidad independiente.
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Analizá este archivo como una unidad independiente.
 Organización esperada del lote: ${organization}
 Período esperado del lote: ${period}
 Nombre de archivo: ${file.name}
@@ -109,24 +110,34 @@ la evidencia visible. Las observaciones son contexto y nunca evidencia documenta
 
 Contenido extraído:
 ${content.text}`,
-        },
-      ],
-    },
-  );
+          },
+        ],
+      },
+    );
 
-  const rawContent = response.choices?.[0]?.message?.content;
-  if (typeof rawContent !== "string" || !rawContent.trim()) {
-    throw new Error("Mistral no devolvió una extracción estructurada.");
-  }
+    const rawContent = response.choices?.[0]?.message?.content;
+    if (typeof rawContent !== "string" || !rawContent.trim()) {
+      throw new Error("Mistral no devolvió una extracción estructurada.");
+    }
 
-  const extraction = recoverTransfersFromOcr(
-    sanitizeExtraction(rawExtractionSchema.parse(JSON.parse(rawContent))),
-    content.text,
-  );
-  if (content.pageCount !== null) {
-    extraction.page_count = content.pageCount;
+    const extraction = recoverTransfersFromOcr(
+      sanitizeExtraction(rawExtractionSchema.parse(JSON.parse(rawContent))),
+      content.text,
+    );
+    if (content.pageCount !== null) {
+      extraction.page_count = content.pageCount;
+    }
+    return sanitizeExtraction(
+      recoverReceiptsFromOcr(
+        reclassifyReceiptsMistakenAsLiquidation(extraction),
+        content.text,
+      ),
+    );
+  } catch (error) {
+    const fallback = receiptsOnlyExtraction(content.text, content.pageCount);
+    if (fallback) return fallback;
+    throw error;
   }
-  return reclassifyReceiptsMistakenAsLiquidation(extraction);
 }
 
 async function contentForAnalysis(
@@ -311,6 +322,227 @@ export function reclassifyReceiptsMistakenAsLiquidation(
   return extraction;
 }
 
+const RECEIPT_AMOUNT = String.raw`(\d{1,3}(?:[.\s]\d{3})*,\d{2}|\d+,\d{2})`;
+
+/**
+ * El PDF de recibos (dos por página, como h.cuidados) suele no entrar en la
+ * respuesta del modelo. Nominal y líquido están rotulados: se leen del texto.
+ */
+export function parseReceiptsFromOcr(ocrText: string) {
+  const text = ocrText
+    .replace(/\u000c/g, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/\*\*/g, "")
+    .replace(/\|/g, " ");
+  const marker = new RegExp(
+    `L[ií]quido a Cobrar\\s*:?\\s{0,60}(?:\\$|UYU)?\\s{0,20}${RECEIPT_AMOUNT}`,
+    "gi",
+  );
+  const receipts: RawExtraction["receipts"] = [];
+  const seen = new Set<string>();
+  let previous = 0;
+
+  for (const match of text.matchAll(marker)) {
+    const start = match.index ?? 0;
+    const block = text.slice(previous, start + match[0].length);
+    previous = start + match[0].length;
+    const net = match[1]?.replace(/\s/g, "") ?? null;
+    const receipt = receiptFromBlock(block, net);
+    if (!receipt) continue;
+    const key = [
+      receipt.document_number.original,
+      receipt.nominal.original,
+      receipt.net.original,
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    receipts.push(receipt);
+  }
+  return receipts;
+}
+
+export function recoverReceiptsFromOcr(
+  extraction: RawExtraction,
+  ocrText: string,
+): RawExtraction {
+  const parsed = parseReceiptsFromOcr(ocrText);
+  if (!parsed.length) return extraction;
+  if (
+    (extraction.classification === "NOMINA" &&
+      extraction.payroll_entries.length > 0) ||
+    (extraction.classification === "COMPROBANTE_TRANSFERENCIAS" &&
+      extraction.transfers.length > 0)
+  ) {
+    return extraction;
+  }
+
+  const modelComplete = extraction.receipts.filter(
+    (receipt) =>
+      receipt.document_number.original &&
+      receipt.nominal.original &&
+      receipt.net.original,
+  ).length;
+  if (modelComplete > parsed.length) return extraction;
+
+  const wasReceipt = extraction.classification === "RECIBO_SUELDO";
+  extraction.receipts = parsed;
+  if (extraction.classification !== "DOCUMENTO_MIXTO") {
+    extraction.odoo_entries = [];
+    extraction.payroll_entries = [];
+    extraction.transfers = [];
+    extraction.classification = "RECIBO_SUELDO";
+    extraction.classification_confidence = Math.max(
+      extraction.classification_confidence,
+      0.9,
+    );
+  }
+  if (!wasReceipt || modelComplete < parsed.length) {
+    extraction.warnings.push(
+      `Se leyeron ${parsed.length} recibos desde el PDF: Total de Haberes es el nominal y Líquido a Cobrar es el líquido.`,
+    );
+  }
+  return extraction;
+}
+
+function receiptsOnlyExtraction(
+  ocrText: string,
+  pageCount: number | null,
+): RawExtraction | null {
+  const receipts = parseReceiptsFromOcr(ocrText);
+  if (!receipts.length) return null;
+  const extraction = blankExtraction("RECIBO_SUELDO");
+  extraction.page_count = pageCount;
+  extraction.receipts = receipts;
+  extraction.warnings.push(
+    "El modelo no devolvió el detalle. Los recibos se leyeron del texto del PDF.",
+  );
+  return extraction;
+}
+
+function receiptFromBlock(block: string, net: string | null) {
+  const nominal = lastAmount(
+    block,
+    new RegExp(
+      `Total de Haberes\\s*:?\\s{0,60}(?:\\$|UYU)?\\s{0,20}${RECEIPT_AMOUNT}`,
+      "gi",
+    ),
+  );
+  if (!nominal || !net || parseMoney(nominal).value === null) return null;
+  if (parseMoney(net).value === null) return null;
+
+  const documentNumber = lastAmount(
+    block,
+    /C\s*\.?\s*I\s*\.?\s*[:.]?\s*(\d{1,2}(?:\.\d{3}){1,2}-\d|\d{6,8}-\d|\d{7,8})/gi,
+  );
+  if (!documentNumber || !normalizeDocumentNumber(documentNumber)) return null;
+
+  const evidence = compactEvidence(block, documentNumber, nominal, net);
+  const names = labeledValue(block, "Nombres");
+  const surnames = [labeledValue(block, "Apellidos"), extraSurname(block)]
+    .filter(Boolean)
+    .join(" ");
+  const fullName = [names, surnames].filter(Boolean).join(" ").trim() || null;
+  const period = block.match(
+    /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\s+20\d{2}\b/i,
+  )?.[0];
+
+  return {
+    document_number: rawField(documentNumber, evidence),
+    full_name: rawField(fullName, evidence),
+    period: rawField(
+      period ? period.replace(/setiembre/i, "septiembre") : null,
+      evidence,
+    ),
+    organization: emptyRawField(),
+    position: rawField(labeledValue(block, "Cargo"), evidence),
+    category: emptyRawField(),
+    employment_accumulation: emptyRawField(),
+    concept: emptyRawField(),
+    concept_code: emptyRawField(),
+    receipt_id: emptyRawField(),
+    account: rawField(
+      lastAmount(block, /N[º°o.]?\s*Cuenta\s*:?\s*(\d{6,})/gi),
+      evidence,
+    ),
+    nominal: { ...rawField(nominal, evidence), currency: "UYU" },
+    net: { ...rawField(net, evidence), currency: "UYU" },
+  };
+}
+
+function lastAmount(block: string, pattern: RegExp) {
+  const matches = [...block.matchAll(pattern)];
+  const value = matches.at(-1)?.[1]?.replace(/\s/g, "").trim();
+  return value || null;
+}
+
+function labeledValue(block: string, label: string) {
+  const match = block.match(new RegExp(`${label}\\s*:\\s*([^\\n]+)`, "i"));
+  if (!match?.[1]) return null;
+  const value = match[1]
+    .replace(/\s{2,}.*/, "")
+    .replace(/\s+-\s*$/, "")
+    .trim();
+  return value || null;
+}
+
+function extraSurname(block: string) {
+  const after = block.split(/Apellidos\s*:[^\n]*/i)[1] ?? "";
+  const untilId = after.split(/C\s*\.?\s*I\s*\.?/i)[0] ?? "";
+  const lines = untilId
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) => line && !line.includes(":") && /^[\p{L}\s]+$/u.test(line),
+    );
+  return lines.join(" ") || null;
+}
+
+function compactEvidence(
+  block: string,
+  documentNumber: string,
+  nominal: string,
+  net: string,
+) {
+  const lines = block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.includes(documentNumber) ||
+        /total de haberes|l[ií]quido a cobrar/i.test(line),
+    );
+  const evidence = lines.join(" | ") || `${nominal} ${net}`;
+  return evidence.slice(0, 400);
+}
+
+function blankExtraction(
+  classification: RawExtraction["classification"],
+): RawExtraction {
+  return {
+    classification,
+    classification_confidence: 0.9,
+    period: emptyRawField(),
+    organization: emptyRawField(),
+    page_count: null,
+    warnings: [],
+    liquidation_totals: {
+      base_salary: emptyMoney(),
+      other_earnings: emptyMoney(),
+      nominal: emptyMoney(),
+      deductions: emptyMoney(),
+      net: emptyMoney(),
+    },
+    odoo_entries: [],
+    payroll_entries: [],
+    receipts: [],
+    transfers: [],
+  };
+}
+
+function emptyMoney() {
+  return { ...emptyRawField(), currency: null };
+}
+
 /**
  * Si el modelo se queda con la primera fila del listado de sueldos, completamos
  * las transferencias faltantes a partir del OCR.
@@ -375,8 +607,9 @@ export function parseTransferRowsFromOcr(ocrText: string) {
     if (parseMoney(amountMatch[1]).value === null) continue;
     const afterAmount = body.slice(amountMatch.index + amountMatch[1].length);
     const untilMarker =
-      afterAmount.split(/\bN\/A\b|\bHistorial\b|\bCreador\b|\bFirmantes\b/i)[0] ??
-      afterAmount;
+      afterAmount.split(
+        /\bN\/A\b|\bHistorial\b|\bCreador\b|\bFirmantes\b/i,
+      )[0] ?? afterAmount;
     const accountMatch = untilMarker.match(/(\d{6,})/);
     const nameSource =
       accountMatch?.[1] && accountMatch.index !== undefined
