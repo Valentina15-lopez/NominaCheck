@@ -140,7 +140,10 @@ function accountantStatus({
   payrollBelowReceipt: number | null;
 }) {
   const parts: string[] = [];
-  if (missingTransfer || (liquidDifference !== null && liquidDifference !== 0)) {
+  if (
+    missingTransfer ||
+    (liquidDifference !== null && liquidDifference !== 0)
+  ) {
     parts.push("falta transferencia");
   }
   if (payrollBelowReceipt !== null && payrollBelowReceipt > 0) {

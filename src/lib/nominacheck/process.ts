@@ -684,8 +684,7 @@ function choosePayroll(
     odoo,
     samePerson.map((item) => item.candidate),
   );
-  const chosen =
-    ranked.find((item) => item.candidate === selected) ?? best;
+  const chosen = ranked.find((item) => item.candidate === selected) ?? best;
   return {
     selected,
     score: chosen.score,
@@ -710,9 +709,7 @@ function pickPayrollRow(odoo: OdooRecord, rows: PayrollEntry[]) {
     );
     if (byAmount) return byAmount;
   }
-  return (
-    rows.find((row) => row.concept_code.normalized === "1") ?? rows[0]!
-  );
+  return rows.find((row) => row.concept_code.normalized === "1") ?? rows[0]!;
 }
 
 function sameIdentity(
@@ -869,10 +866,7 @@ function transferMatchesWorker(
 
   const transferAccount = normalizeAccount(transfer.account.original);
   const accountMatches = records.some((record) =>
-    accountsMatch(
-      transferAccount,
-      record.receipt?.account.normalized ?? null,
-    ),
+    accountsMatch(transferAccount, record.receipt?.account.normalized ?? null),
   );
   if (accountMatches) return true;
 

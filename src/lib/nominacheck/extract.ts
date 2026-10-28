@@ -7,6 +7,7 @@ import {
 } from "@/lib/nominacheck/schema";
 import {
   normalizeDocumentNumber,
+  normalizeName,
   parseMoney,
 } from "@/lib/nominacheck/normalize";
 
@@ -376,16 +377,16 @@ export function recoverReceiptsFromOcr(
     return extraction;
   }
 
-  const modelComplete = extraction.receipts.filter(
-    (receipt) =>
-      receipt.document_number.original &&
-      receipt.nominal.original &&
-      receipt.net.original,
-  ).length;
-  if (modelComplete > parsed.length) return extraction;
+  if (extraction.receipts.length > 0) {
+    extraction.receipts = mergeReads(
+      extraction.receipts,
+      parsed,
+      sameReceiptRead,
+      (kept, extra) => fillUnreadFields(kept, extra, RECEIPT_FIELDS),
+    );
+    return extraction;
+  }
 
-  const wasReceipt = extraction.classification === "RECIBO_SUELDO";
-  extraction.receipts = parsed;
   if (extraction.classification !== "DOCUMENTO_MIXTO") {
     extraction.odoo_entries = [];
     extraction.payroll_entries = [];
@@ -396,11 +397,10 @@ export function recoverReceiptsFromOcr(
       0.9,
     );
   }
-  if (!wasReceipt || modelComplete < parsed.length) {
-    extraction.warnings.push(
-      `Se leyeron ${parsed.length} recibos desde el PDF: Total de Haberes es el nominal y Líquido a Cobrar es el líquido.`,
-    );
-  }
+  extraction.receipts = parsed;
+  extraction.warnings.push(
+    `Se leyeron ${parsed.length} recibos desde el PDF: Total de Haberes es el nominal y Líquido a Cobrar es el líquido.`,
+  );
   return extraction;
 }
 
@@ -545,7 +545,8 @@ function emptyMoney() {
 
 /**
  * Si el modelo se queda con la primera fila del listado de sueldos, completamos
- * las transferencias faltantes a partir del OCR.
+ * las transferencias faltantes a partir del OCR. Un campo que el modelo ya
+ * leyó no se vuelve a tomar del texto.
  */
 export function recoverTransfersFromOcr(
   extraction: RawExtraction,
@@ -558,23 +559,20 @@ export function recoverTransfersFromOcr(
     return extraction;
   }
 
-  const recovered = parseTransferRowsFromOcr(ocrText);
-  if (!recovered.length) return extraction;
-
-  const existing = new Set(
-    extraction.transfers.map((transfer) =>
-      transferIdentity(transfer.beneficiary.original, transfer.amount.original),
-    ),
+  extraction.transfers = mergeReads(
+    extraction.transfers,
+    parseTransferRowsFromOcr(ocrText),
+    sameTransferRead,
+    (kept, extra) => {
+      fillUnreadFields(kept, extra, TRANSFER_FIELDS);
+      if (
+        kept.payment_type === "NO_DETERMINADO" &&
+        extra.payment_type !== "NO_DETERMINADO"
+      ) {
+        kept.payment_type = extra.payment_type;
+      }
+    },
   );
-  for (const transfer of recovered) {
-    const key = transferIdentity(
-      transfer.beneficiary.original,
-      transfer.amount.original,
-    );
-    if (existing.has(key)) continue;
-    extraction.transfers.push(transfer);
-    existing.add(key);
-  }
 
   const declared = declaredPaymentCount(ocrText);
   if (declared !== null && extraction.transfers.length < declared) {
@@ -583,6 +581,155 @@ export function recoverTransfersFromOcr(
     );
   }
   return extraction;
+}
+
+const TRANSFER_FIELDS = [
+  "beneficiary",
+  "document_number",
+  "account",
+  "amount",
+  "payment_date",
+  "bank",
+  "transaction_reference",
+  "payment_status",
+] as const;
+
+const RECEIPT_FIELDS = [
+  "document_number",
+  "full_name",
+  "period",
+  "organization",
+  "position",
+  "category",
+  "employment_accumulation",
+  "concept",
+  "concept_code",
+  "receipt_id",
+  "account",
+  "nominal",
+  "net",
+] as const;
+
+/**
+ * Lo que el modelo ya leyó queda primero. El OCR solo completa campos vacíos
+ * o agrega un registro que el modelo no trajo.
+ */
+function mergeReads<T>(
+  modelReads: T[],
+  ocrReads: T[],
+  same: (left: T, right: T) => boolean,
+  fillUnread: (kept: T, extra: T) => void,
+) {
+  const kept: T[] = [];
+  for (const read of [...modelReads, ...ocrReads]) {
+    const match = kept.find((existing) => same(existing, read));
+    if (!match) {
+      kept.push(read);
+      continue;
+    }
+    fillUnread(match, read);
+  }
+  return kept;
+}
+
+function fillUnreadFields(
+  kept: object,
+  extra: object,
+  keys: readonly string[],
+) {
+  const target = kept as Record<string, RawField>;
+  const source = extra as Record<string, RawField | undefined>;
+  for (const key of keys) {
+    const incoming = source[key];
+    if (!incoming || fieldWasRead(target[key]) || !fieldWasRead(incoming)) {
+      continue;
+    }
+    target[key] = incoming;
+  }
+}
+
+function fieldWasRead(field: RawField | undefined) {
+  return Boolean(field?.original?.trim());
+}
+
+function sameTransferRead(
+  left: RawExtraction["transfers"][number],
+  right: RawExtraction["transfers"][number],
+) {
+  if (!sameBeneficiary(left.beneficiary.original, right.beneficiary.original)) {
+    return false;
+  }
+  if (!amountsCompatible(left.amount.original, right.amount.original)) {
+    return false;
+  }
+  if (
+    left.payment_type !== "NO_DETERMINADO" &&
+    right.payment_type !== "NO_DETERMINADO" &&
+    left.payment_type !== right.payment_type
+  ) {
+    return false;
+  }
+  const leftDate = dateKey(left.payment_date.original);
+  const rightDate = dateKey(right.payment_date.original);
+  return !leftDate || !rightDate || leftDate === rightDate;
+}
+
+function sameReceiptRead(
+  left: RawExtraction["receipts"][number],
+  right: RawExtraction["receipts"][number],
+) {
+  const leftId = normalizeDocumentNumber(left.document_number.original);
+  const rightId = normalizeDocumentNumber(right.document_number.original);
+  if (leftId && rightId && leftId !== rightId) return false;
+  const namesMatch =
+    !!left.full_name.original &&
+    !!right.full_name.original &&
+    sameBeneficiary(left.full_name.original, right.full_name.original);
+  if (
+    left.full_name.original &&
+    right.full_name.original &&
+    !namesMatch &&
+    !(leftId && rightId)
+  ) {
+    return false;
+  }
+  if (!amountsCompatible(left.nominal.original, right.nominal.original)) {
+    return false;
+  }
+  if (!amountsCompatible(left.net.original, right.net.original)) return false;
+  if (leftId && rightId) return true;
+  return namesMatch;
+}
+
+function sameBeneficiary(left: string | null, right: string | null) {
+  const a = normalizeName(left);
+  const b = normalizeName(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const aParts = a.split(" ");
+  const bParts = b.split(" ");
+  const shorter = aParts.length <= bParts.length ? aParts : bParts;
+  const longer = aParts.length <= bParts.length ? bParts : aParts;
+  // Un segundo nombre de más no alcanza para tratarlos como otra persona.
+  return shorter.length >= 2 && shorter.every((part) => longer.includes(part));
+}
+
+function moneyCents(value: string | null) {
+  const parsed = parseMoney(value).value;
+  return parsed === null ? null : Math.round(parsed * 100);
+}
+
+function dateKey(value: string | null) {
+  const match = value?.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+  if (!match) return null;
+  return `${match[3]}-${match[2]!.padStart(2, "0")}-${match[1]!.padStart(2, "0")}`;
+}
+
+function amountsCompatible(left: string | null, right: string | null) {
+  const leftCents = moneyCents(left);
+  const rightCents = moneyCents(right);
+  if (leftCents === null || rightCents === null) return true;
+  return leftCents === rightCents;
 }
 
 export function parseTransferRowsFromOcr(ocrText: string) {
