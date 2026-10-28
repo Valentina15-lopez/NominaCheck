@@ -413,7 +413,10 @@ Importe total: $ 40.458,00
     "CWS35560260303191843",
   );
   assert.equal(recovered.transfers[0]?.amount.original, "$ 4.842,00");
-  assert.equal(recovered.transfers[1]?.beneficiary.original, "MENDARO, FACUNDO");
+  assert.equal(
+    recovered.transfers[1]?.beneficiary.original,
+    "MENDARO, FACUNDO",
+  );
 });
 
 test("colapsa la primera fila cuando el modelo la devuelve dos veces", () => {
@@ -484,7 +487,10 @@ test("conserva cada campo de la transferencia que el modelo ya leyó", () => {
 
   const recovered = recoverTransfersFromOcr(partial, ocr);
   assert.equal(recovered.transfers.length, 2);
-  assert.equal(recovered.transfers[0]?.beneficiary.original, "ESTEVES, MARCELA");
+  assert.equal(
+    recovered.transfers[0]?.beneficiary.original,
+    "ESTEVES, MARCELA",
+  );
   assert.equal(recovered.transfers[0]?.account.original, "CUENTA-DEL-MODELO");
   assert.equal(recovered.transfers[0]?.amount.original, "$ 4.842,00");
   assert.equal(

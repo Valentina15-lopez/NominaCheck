@@ -638,11 +638,13 @@ function fillUnreadFields(
   keys: readonly string[],
 ) {
   const target = kept as Record<string, RawField>;
-  const source = extra as Record<string, RawField>;
+  const source = extra as Record<string, RawField | undefined>;
   for (const key of keys) {
-    if (fieldWasRead(target[key])) continue;
-    if (!fieldWasRead(source[key])) continue;
-    target[key] = source[key];
+    const incoming = source[key];
+    if (!incoming || fieldWasRead(target[key]) || !fieldWasRead(incoming)) {
+      continue;
+    }
+    target[key] = incoming;
   }
 }
 
