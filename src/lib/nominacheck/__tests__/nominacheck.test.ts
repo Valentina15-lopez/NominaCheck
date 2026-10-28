@@ -360,6 +360,142 @@ test("recupera las filas de un comprobante de sueldos si el modelo solo extrae l
   assert.equal(parseTransferRowsFromOcr(ocr).length, 3);
 });
 
+test("no duplica la primera transferencia si el modelo y el OCR la leen con distinto formato", () => {
+  const partial = baseExtraction("COMPROBANTE_TRANSFERENCIAS");
+  partial.transfers.push(
+    {
+      beneficiary: field("ESTEVES, MARCELA"),
+      document_number: field(null),
+      account: field("2201000001331594900"),
+      amount: {
+        original: "$ 4.842,00",
+        confidence: 0.99,
+        page: 1,
+        evidence: "$ 4.842,00",
+        currency: "UYU",
+      },
+      payment_date: field("08/04/2026"),
+      bank: field("Cuenta"),
+      transaction_reference: field("CWS35560260303191843"),
+      payment_status: field("Enviados"),
+      payment_type: "PAGO_DE_SALDO",
+    },
+    {
+      beneficiary: field("MENDARO, FACUNDO"),
+      document_number: field(null),
+      account: field("2201000003460611000"),
+      amount: {
+        original: "$ 35.616,00",
+        confidence: 0.99,
+        page: 1,
+        evidence: "$ 35.616,00",
+        currency: "UYU",
+      },
+      payment_date: field("08/04/2026"),
+      bank: field("Cuenta"),
+      transaction_reference: field(null),
+      payment_status: field("Enviados"),
+      payment_type: "PAGO_DE_SALDO",
+    },
+  );
+
+  const ocr = `Referencia CWS35560260303191843
+Fecha de creación: 08/04/2026
+Nro. total de pagos: 2
+Importe total: $ 40.458,00
+08/04/2026 4.842,00 Cuenta 2201000001331594900 MARCELA ESTEVES N/A N/A
+08/04/2026 35.616,00 Cuenta 2201000003460611000 FACUNDO MENDARO N/A N/A`;
+
+  const recovered = recoverTransfersFromOcr(partial, ocr);
+  assert.equal(recovered.transfers.length, 2);
+  assert.equal(
+    recovered.transfers[0]?.transaction_reference.original,
+    "CWS35560260303191843",
+  );
+  assert.equal(recovered.transfers[0]?.amount.original, "$ 4.842,00");
+  assert.equal(recovered.transfers[1]?.beneficiary.original, "MENDARO, FACUNDO");
+});
+
+test("colapsa la primera fila cuando el modelo la devuelve dos veces", () => {
+  const partial = baseExtraction("COMPROBANTE_TRANSFERENCIAS");
+  const row = {
+    beneficiary: field("MARCELA ESTEVES"),
+    document_number: field(null),
+    account: field("2201000001331594900"),
+    amount: {
+      original: "4.842,00",
+      confidence: 0.99,
+      page: 1,
+      evidence: "4.842,00",
+      currency: "UYU",
+    },
+    payment_date: field("08/04/2026"),
+    bank: field("Cuenta"),
+    transaction_reference: field("CWS35560260303191843"),
+    payment_status: field(null),
+    payment_type: "PAGO_DE_SALDO" as const,
+  };
+  partial.transfers.push(row, {
+    ...row,
+    transaction_reference: field(null),
+    amount: { ...row.amount },
+    beneficiary: field("MARCELA ESTEVES"),
+  });
+  partial.transfers.push({
+    ...row,
+    beneficiary: field("FACUNDO MENDARO"),
+    account: field("2201000003460611000"),
+    amount: { ...row.amount, original: "35.616,00", evidence: "35.616,00" },
+    transaction_reference: field(null),
+  });
+
+  const recovered = recoverTransfersFromOcr(partial, "");
+  assert.equal(recovered.transfers.length, 2);
+  assert.equal(
+    recovered.transfers[0]?.transaction_reference.original,
+    "CWS35560260303191843",
+  );
+  assert.equal(recovered.transfers[1]?.beneficiary.original, "FACUNDO MENDARO");
+});
+
+test("conserva cada campo de la transferencia que el modelo ya leyó", () => {
+  const partial = baseExtraction("COMPROBANTE_TRANSFERENCIAS");
+  partial.transfers.push({
+    beneficiary: field("ESTEVES, MARCELA"),
+    document_number: field(null),
+    account: field("CUENTA-DEL-MODELO"),
+    amount: {
+      original: "$ 4.842,00",
+      confidence: 0.99,
+      page: 1,
+      evidence: "$ 4.842,00",
+      currency: "UYU",
+    },
+    payment_date: field("08/04/2026"),
+    bank: field(null),
+    transaction_reference: field("CWS35560260303191843"),
+    payment_status: field(null),
+    payment_type: "PAGO_DE_SALDO",
+  });
+
+  const ocr = `Nro. total de pagos: 2
+08/04/2026 4.842,00 Cuenta 2201000001331594900 MARCELA ESTEVES N/A N/A
+08/04/2026 35.616,00 Cuenta 2201000003460611000 FACUNDO MENDARO N/A N/A`;
+
+  const recovered = recoverTransfersFromOcr(partial, ocr);
+  assert.equal(recovered.transfers.length, 2);
+  assert.equal(recovered.transfers[0]?.beneficiary.original, "ESTEVES, MARCELA");
+  assert.equal(recovered.transfers[0]?.account.original, "CUENTA-DEL-MODELO");
+  assert.equal(recovered.transfers[0]?.amount.original, "$ 4.842,00");
+  assert.equal(
+    recovered.transfers[0]?.transaction_reference.original,
+    "CWS35560260303191843",
+  );
+  assert.equal(recovered.transfers[0]?.bank.original, "Cuenta");
+  assert.equal(recovered.transfers[1]?.beneficiary.original, "FACUNDO MENDARO");
+  assert.equal(recovered.transfers[1]?.account.original, "2201000003460611000");
+});
+
 test("recupera pagos de sueldo aunque el beneficiario quede partido en varias líneas", () => {
   const ocr = `Nro. total de
 pagos
@@ -618,6 +754,31 @@ test("lee nominal y líquido de un PDF de recibos aunque el modelo lo haya tomad
   assert.equal(recovered.classification, "RECIBO_SUELDO");
   assert.equal(recovered.odoo_entries.length, 0);
   assert.equal(recovered.receipts.length, 2);
+});
+
+test("conserva cada campo del recibo que el modelo ya leyó", () => {
+  const extraction = baseExtraction("RECIBO_SUELDO");
+  const ana = receiptEntry();
+  ana.full_name = field("PEREZ, ANA MARIA");
+  ana.document_number = field("4567890-5");
+  ana.position = field("Cargo del modelo");
+  ana.account = field(null);
+  ana.nominal = { ...ana.nominal, original: "80013,34" };
+  ana.net = { ...ana.net, original: "24842,00" };
+  extraction.receipts.push(ana);
+
+  const recovered = recoverReceiptsFromOcr(extraction, RECEIPT_OCR);
+  assert.equal(recovered.classification, "RECIBO_SUELDO");
+  assert.equal(recovered.receipts.length, 2);
+  assert.equal(recovered.receipts[0]?.full_name.original, "PEREZ, ANA MARIA");
+  assert.equal(recovered.receipts[0]?.nominal.original, "80013,34");
+  assert.equal(recovered.receipts[0]?.net.original, "24842,00");
+  assert.equal(recovered.receipts[0]?.position.original, "Cargo del modelo");
+  assert.equal(recovered.receipts[0]?.account.original, "1331594900");
+  assert.equal(
+    recovered.receipts[1]?.full_name.original,
+    "LUIS DI TRAPANI MONTESDEOCA",
+  );
 });
 
 test("no pisa una nómina cuando el texto no es un recibo mal clasificado con filas", () => {
